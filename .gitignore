@@ -4,3 +4,4 @@ __pycache__/
 mathcounts_downloads/
 /.claude/
 *.zip
+spell_check_out/
