@@ -1,1 +1,1 @@
-# no_cot_math_public
+See [write_up_filler.md](write_up_filler.md) and [write_up_single_forward_pass_time_horizon.md](write_up_single_forward_pass_time_horizon.md). Note that I've intentionally not included the math dataset I use to reduce the risk of contamination, please contact me for this data.
