@@ -11,13 +11,13 @@ Here are the 50% reliability time horizon results:
 
 ![](https://raw.githubusercontent.com/rgreenblatt/no_cot_math_public/master/eval_results/time_horizon_vs_release_date.png)
 
-I find that Opus 4.5 has an no-cot 50% reliability time horizon of 3.5 minutes and that time horizon has been doubling every 9 months.
+I find that Opus 4.5 has a no-CoT 50% reliability time horizon of 3.5 minutes and that time horizon has been doubling every 9 months.
 
 In an earlier post ([Recent LLMs can leverage filler tokens or repeated problems to improve (no-CoT) math performance](FIXURL) (*TODO: link*)), I found that repeating the problem substantially boosts performance.
 In the above plot, if repeating the problem 5 times in the prompt helps some model, I use the score with repeats (because I think this somewhat more conservative measurement is plausibly more representative of the concerning type of cognition).
 
-The fit appears very clean, but note that I've opinionatedly just done the fit on frontier Anthropic models (specifically, I exclude deepseek-v3 which was barely SOTA at the time of release).
-Also note that if you don't allow for repeats, frontier Anthropic models and GPT-4 are no longer appear to be on the same nice trend (frontier Anthropic models still have their own very good fit exponential trend, it just no longer back predicts GPT-4 as well).
+The fit appears very clean, but note that I've opinionatedly just done the fit on frontier Anthropic models (specifically, I exclude DeepSeek-v3 which was barely SOTA at the time of release).
+Also note that if you don't allow for repeats, frontier Anthropic models and GPT-4 no longer appear to be on the same nice trend (frontier Anthropic models still have their own very clean exponential fit, it just no longer back-predicts GPT-4 as well).
 
 I compare results with repeats to without repeats:
 
@@ -42,11 +42,10 @@ The math dataset I use is one I created that consists of 907 mostly easy competi
 For more details on the dataset I use and my overall setup, see my [prior post on filler tokens and repeated problems](FIXURL) (*TODO: link*) as that uses the same setup.
 You can find the code for these experiments at [github.com/rgreenblatt/no_cot_math_public](https://github.com/rgreenblatt/no_cot_math_public).
 
-
 # Analysis
 
 What should we conclude based on these results?
-In some sense, a 3.5 minute no-CoT (opaque) 50% reliability time horizon is pretty scary (you can think through a lot in 3.5 minutes!), but it is encouraging that this is lagging far behind non-opaque time horizon (e.g. probably the best LLMs have several hour time horizons on hard AIME-like math problems).
+In some sense, a 3.5 minute no-CoT (opaque) 50% reliability time horizon is pretty scary (you can think through a lot in 3.5 minutes!), but it is encouraging that this is lagging far behind the non-opaque time horizon (e.g. probably the best LLMs have several hour time horizons on hard AIME-like math problems).
 Further, it appears that the doubling time for no-CoT time horizon (of ~9 months) is a decent amount slower than the doubling time for non-opaque/with-CoT time-horizon (in 2025 the doubling time measured by METR on SWE tasks was maybe around 4-6 months and I'd guess you get a similar number on math).
 That said, note that my results don't allow for encoded reasoning in CoT and just look at single forward pass performance on a fixed prompt (with repeats[^filler]).
 
@@ -65,18 +64,18 @@ Of course, all of this assumes no large change in architectures (such as a shift
 
 # Appendix: scores for Gemini 3 Pro
 
-Gemini 2.5 Pro and Gemini 3 Pro both don't support disabling reasoning which makes running evaluations for these modesl tricky.
-To try to get around this, I wrote a prompt that (repeatedly and extremely strongly) instructs the model to not do any reasoning about the math problem
+Gemini 2.5 Pro and Gemini 3 Pro both don't support disabling reasoning which makes running evaluations for these models tricky.
+To try to get around this, I wrote a prompt that (repeatedly and extremely strongly) instructs the model to not do any reasoning about the math problem.
 By default, just instructing the model doesn't work, but I used various tricks to get this to mostly work.
 Then, I have another model look at the reasoning summary and consider the model incorrect if it did any reasoning about the problem (I attempt resampling a few times to try to get a trajectory where the model doesn't reason).
 
 Based on these results Gemini 3 Pro appears to be a bit better than Opus 4.5, however there are some very large caveats associated with these results:
 
-- Overall, the prompt I ended up using is kinda insane and very finicky: slight changes to the prompt make it no longer work (the model no longer reasons or fails to respond) and it doesn't work for Gemini 3 Pro. Thus, it's possible performance is much lower than it could be due to this insane prompt (that is basically a jailbreak). (The prompt involves telling the model exactly what it is supposed to output in its thinking block and repeatedly including this text in the prompt with all caps instructions urging the model to output this block of text in its thinking section and nothing else. The thinking the model is supposed to output was taken from a reasoning summary for an earlier similar prompt in which the model actually followed the instructions reasonably; my hope was that it would be easier to get the model to use some particular thinking if it is highly in distribution for what it might output and this appears to work.)
-- Due to this prompt being insane and finicky, repeats cause the prompt to no longer work (the model no long responds validly); however, the prompt does sort of have filler token as I include a bunch of tokens after the problem strongly telling the model to not reasoning and the model outputs some thinking (that is about how it isn't supposed to reason about the math problem) in the thinking block. (Maybe it's harder to use random filler tokens than tokens counting to some fixed number though?)
-- I only evaluated on 200 problems due to not having a high usage tier google API key.
-- I compare to Opus 4.5 (and Opus 4) on the same subset and Gemini 3 Pro (with the insane prompt and without repeats or explicit filler tokens) appears to perform better than either of these models with repeats. It's possible that with a reasonable prompt (for a non-reasoning instruct version of the model) and repeats Gemini 3 pro would be much better.
-- I'm not that confident the model isn't ever actually reasoning in CoT about the math problem. I just have access to the reasoning summary and I verify that Opus 4.5 thinks this reasoning doesn't reason about the math problem and that the reasoning looks similar to the reasoning it is supposed to output. My best guess is that the reasoning summary involves paraphrasing the output of the model (it often looks like the output is a paraphrase of the text I strongly tell the model to copy) and it also remove text some of the time. It's only possible the model is somewhat-steganographically reasoning about the problem in a way Opus 4.5 doesn't catch.
+- Overall, the prompt I ended up using is insane and very finicky: slight changes to the prompt make it no longer work (the model no longer reasons or fails to respond) and it doesn't work for Gemini 3 Pro. Thus, it's possible performance is much lower than it could be due to this insane prompt (that is basically a jailbreak). (The prompt involves telling the model exactly what it is supposed to output in its thinking block and repeatedly including this text in the prompt with all caps instructions urging the model to output this block of text in its thinking section and nothing else. The thinking the model is supposed to output was taken from a reasoning summary for an earlier similar prompt in which the model actually followed the instructions reasonably; my hope was that it would be easier to get the model to use some particular thinking if it is highly in distribution for what it might output and this appears to work.)
+- Due to this prompt being insane and finicky, repeats cause the prompt to no longer work (it no longer responds validly); however, the prompt does sort of have filler tokens as I include a bunch of tokens after the problem strongly telling the model to not reason and the model outputs some thinking (that is about how it isn't supposed to reason about the math problem) in the thinking block. (Maybe it's harder to use random filler tokens than tokens counting to some fixed number though?)
+- I only evaluated on 200 problems due to not having a high usage tier Google API key.
+- I compare to Opus 4.5 (and Opus 4) on the same subset and Gemini 3 Pro (with the insane prompt and without repeats or explicit filler tokens) appears to perform better than either of these models with repeats. It's possible that with a reasonable prompt (for a non-reasoning instruct version of the model) and repeats Gemini 3 Pro would be much better.
+- I'm not that confident the model isn't ever actually reasoning in CoT about the math problem. I just have access to the reasoning summary and I verify that Opus 4.5 thinks this reasoning doesn't reason about the math problem and that the reasoning looks similar to the reasoning it is supposed to output. My best guess is that the reasoning summary involves paraphrasing the output of the model (it often looks like the output is a paraphrase of the text I strongly tell the model to copy) and it also removes text some of the time. It's also possible the model is somewhat-steganographically reasoning about the problem in a way Opus 4.5 doesn't catch.
 
 I didn't end up evaluating Gemini 2.5 Pro as my prompt for Gemini 3 Pro doesn't work out of the box on 2.5 Pro and the whole process is a huge pain.
 
