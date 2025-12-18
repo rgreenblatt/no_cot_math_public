@@ -1,5 +1,4 @@
 /caches/
-/eval_results/
 __pycache__/
 mathcounts_downloads/
 /.claude/
