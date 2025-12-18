@@ -1,4 +1,4 @@
-# Measuring math time horizon with no CoT (single forward pass)
+# Measuring no CoT math time horizon (single forward pass)
 
 A key risk factor for scheming (and misalignment more generally) is [opaque reasoning ability](https://www.lesswrong.com/posts/aEguDPoCzt3287CCD/how-will-we-update-about-scheming#Opaque_goal_directed_reasoning_ability).
 One proxy for this is how good AIs are at solving math problems immediately without any chain-of-thought (CoT) (as in, in a single forward pass).
