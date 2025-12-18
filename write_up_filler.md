@@ -155,7 +155,7 @@ The best performing models I evaluate (Opus 4.5, Opus 4) have basically the same
 I think it would be most interesting to investigate:
 
 * Do filler tokens or repeats help in other domains where models can answer in a single token? Particularly code classification domains like "is this code correct" or "is this code malign/backdoored". I'm also especially interested in how sophisticated of novel codes models can decode in a single forward pass (with or without a description of the code in context) as a proxy for steganography ability.
-* What do we see if we apply interpretability tools to the filler tokens or repeats of the problem? Can we use internals to better understand why this helps with the model? 
+* What do we see if we apply interpretability tools to the filler tokens or repeats of the problem? Can we use internals to better understand why this helps with the model? More generally it seems interesting to study how models do (surprisingly sophisticated) math problems in a single forward pass.
 * What does performance (over time) look like on other tasks or distributions where various types of (weak/basic) no-cot meta-cognitive abilities would be helpful?
 
 In a future post, I'll discuss more general results on no-cot (single forward pass) time horizon for LLMs and how this has changed over time.
@@ -452,4 +452,6 @@ This yields the following difficulty and solve time distribution:
 ![](https://raw.githubusercontent.com/rgreenblatt/no_cot_math_public/master/eval_results/arith_significance_matrix_filler_haiku-3-5.png)
 
 ![](https://raw.githubusercontent.com/rgreenblatt/no_cot_math_public/master/eval_results/arith_significance_matrix_filler_haiku-3.png)
+
+
 
