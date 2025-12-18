@@ -67,17 +67,30 @@ Of course, all of this assumes no large change in architectures (such as a shift
 Gemini 2.5 Pro and Gemini 3 Pro both don't support disabling reasoning which makes running evaluations for these models tricky.
 To try to get around this, I wrote a prompt that (repeatedly and extremely strongly) instructs the model to not do any reasoning about the math problem.
 By default, just instructing the model doesn't work, but I used various tricks to get this to mostly work.
-Then, I have another model look at the reasoning summary and consider the model incorrect if it did any reasoning about the problem (I attempt resampling a few times to try to get a trajectory where the model doesn't reason).
+Then, I have another model monitor the reasoning summary and consider the model incorrect if the monitor says it did any reasoning about the problem (I attempt resampling a few times to try to get a trajectory where the model doesn't reason).
 
-Based on these results Gemini 3 Pro appears to be a bit better than Opus 4.5, however there are some very large caveats associated with these results:
+With this setup, I get that Gemini 3 Pro has a time horizon of 3.2 minutes (with no repeats or filler).
+This is close to Opus 4.5's performance.
+I can't measure Gemini 3 Pro's performance with repeats (or filler tokens) as they interfere with the reliability of my prompting setup (often causing the model to reason).
+However, my setup might effectively give the model filler tokens due to the prompting and the fact that the model outputs some (hopefully irrelevant) reasoning before responding.
+I think it's pretty plausible that Gemini 3 Pro with repeats and a sane prompting setup has a substantially higher time horizon (e.g. 4.2 minutes).
 
-* Overall, the prompt I ended up using is insane and very finicky: slight changes to the prompt make it no longer work (the model no longer reasons or fails to respond) and it doesn't work for Gemini 3 Pro. Thus, it's possible performance is much lower than it could be due to this insane prompt (that is basically a jailbreak). (The prompt involves telling the model exactly what it is supposed to output in its thinking block and repeatedly including this text in the prompt with all caps instructions urging the model to output this block of text in its thinking section and nothing else. The thinking the model is supposed to output was taken from a reasoning summary for an earlier similar prompt in which the model actually followed the instructions reasonably; my hope was that it would be easier to get the model to use some particular thinking if it is highly in distribution for what it might output and this appears to work.)
-* Due to this prompt being insane and finicky, repeats cause the prompt to no longer work (it no longer responds validly); however, the prompt does sort of have filler tokens as I include a bunch of tokens after the problem strongly telling the model to not reason and the model outputs some thinking (that is about how it isn't supposed to reason about the math problem) in the thinking block. (Maybe it's harder to use random filler tokens than tokens counting to some fixed number though?)
-* I only evaluated on 200 problems due to not having a high usage tier Google API key.
-* I compare to Opus 4.5 (and Opus 4) on the same subset and Gemini 3 Pro (with the insane prompt and without repeats or explicit filler tokens) appears to perform better than either of these models with repeats. It's possible that with a reasonable prompt (for a non-reasoning instruct version of the model) and repeats Gemini 3 Pro would be much better.
+This setup basically works for Gemini 3 Pro and doesn't really work for Gemini 2.5 Pro (I can't get the model to not reason with any reliability).
+But, I do some measurements with Gemini 2.5 Pro and find it has a time horizon of 2.5 minutes (considering the model wrong if it fails to pass the monitor and using repeats=10 which for unclear reasons seems to help prevent the model from reasoning).
+If we assume the model would have the same performance on cases where it failed to pass the monitor, its time horizon looks like it would be pretty close to the time horizon of Gemini 3 Pro (surprisingly); I think this is probably an overestimate of Gemini 2.5 Pro's time horizon.
+
+I expect that Gemini models are trained on math more than Anthropic models, so I'd guess their no-CoT time horizon on math generalizes less well to other reasoning tasks.
+
+There are some (large) caveats with these results:
+
+* Overall, the prompt I ended up using is insane and very finicky: slight changes to the prompt make it no longer work (the model no longer reasons or fails to respond) and it doesn't work well for Gemini 2.5 Pro. Thus, it's possible performance is much lower than it could be due to this insane prompt (that is basically a jailbreak). (The prompt involves telling the model exactly what it is supposed to output in its thinking block and repeatedly including this text in the prompt with all caps instructions urging the model to output this block of text in its thinking section and nothing else. The thinking the model is supposed to output was taken from a reasoning summary for an earlier similar prompt in which the model actually followed the instructions reasonably; my hope was that it would be easier to get the model to use some particular thinking if it is highly in distribution for what it might output and this appears to work.)
+* Due to this prompt being insane and finicky, repeats cause the prompt to no longer work for Gemini 3 Pro (it often no longer responds validly); however, the prompt does sort of have filler tokens as I include a bunch of tokens after the problem strongly telling the model to not reason and the model outputs some thinking (that is about how it isn't supposed to reason about the math problem) in the thinking block. (Maybe it's harder to use random filler tokens than tokens counting to some fixed number though?)
 * I'm not that confident the model isn't ever actually reasoning in CoT about the math problem. I just have access to the reasoning summary and I verify that Opus 4.5 thinks this reasoning doesn't reason about the math problem and that the reasoning looks similar to the reasoning it is supposed to output. My best guess is that the reasoning summary involves paraphrasing the output of the model (it often looks like the output is a paraphrase of the text I strongly tell the model to copy) and it also removes text some of the time. It's also possible the model is somewhat-steganographically reasoning about the problem in a way Opus 4.5 doesn't catch.
+* I use OpenRouter to query these models. I'm not sure how likely issues with OpenRouter are.
 
-I didn't end up evaluating Gemini 2.5 Pro as my prompt for Gemini 3 Pro doesn't work out of the box on 2.5 Pro and the whole process is a huge pain.
+One sanity check that things are reasonable (and the model isn't doing a bunch of reasoning) is that the performance falls off smoothly with estimated time and the fit looks pretty similar to the fit for Opus 4.5:
+
+![](https://raw.githubusercontent.com/rgreenblatt/no_cot_math_public/master/eval_results/time_horizon_plot_gemini_3_pro.png)
 
 # Appendix: full result tables
 

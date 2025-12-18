@@ -4,12 +4,13 @@ Gemini-specific evaluation helpers for math problems without reasoning.
 Gemini 3 Pro doesn't support disabling thinking, so we use a system prompt
 to convince it not to reason. We then verify the output using Claude and
 reject/retry responses where Gemini still reasoned.
+
+Uses OpenRouter API instead of direct Google API.
 """
 
 import asyncio
 import hashlib
 import json
-from google.genai import types
 
 # The "empty thinking" template that Gemini should output instead of reasoning
 EMPTY_THINKING_FOR_GEMINI = """**Navigating the Silent Equation**
@@ -53,16 +54,14 @@ def build_problem_text(problem_text: str, repeat_problem: int | None = None, fil
     Returns:
         formatted problem text
     """
+
     def rep_text(idx):
         if repeat_problem is None or idx == 0:
             return ""
         return f" (repeat #{idx + 1})"
 
     num_repeats = repeat_problem if repeat_problem is not None else 1
-    out = "\n\n".join(
-        f"Problem{rep_text(idx)}: {problem_text}"
-        for idx in range(num_repeats)
-    )
+    out = "\n\n".join(f"Problem{rep_text(idx)}: {problem_text}" for idx in range(num_repeats))
 
     if filler_tokens is not None:
         filler = " ".join(str(i) for i in range(1, filler_tokens + 1))
@@ -71,9 +70,11 @@ def build_problem_text(problem_text: str, repeat_problem: int | None = None, fil
     return out
 
 
-def build_gemini_contents(few_shot_problems, problem_text, repeat_problem: int | None = None, filler_tokens: int | None = None):
+def build_gemini_messages(
+    few_shot_problems, problem_text, repeat_problem: int | None = None, filler_tokens: int | None = None
+):
     """
-    Build the contents list for Gemini API call.
+    Build the messages list for OpenRouter API call (OpenAI chat format).
 
     Args:
         few_shot_problems: list of (index, problem_dict) tuples
@@ -82,52 +83,35 @@ def build_gemini_contents(few_shot_problems, problem_text, repeat_problem: int |
         filler_tokens: number of filler tokens to add (None = none)
 
     Returns:
-        list of types.Content objects
+        list of message dicts in OpenAI chat format
     """
-    contents = []
+    system_instruction = get_gemini_system_instruction(filler_tokens)
+    messages = [{"role": "system", "content": system_instruction}]
 
     # Add few-shot examples
     for idx, prob in few_shot_problems:
         formatted_problem = build_problem_text(prob["problem"], repeat_problem, filler_tokens)
-        contents.append(
-            types.Content(
-                role="user",
-                parts=[types.Part(text=formatted_problem + EXTRA_APPEND)]
-            )
-        )
-        contents.append(
-            types.Content(
-                role="model",
-                parts=[types.Part(text=f"Answer: {prob['answer']}")]
-            )
-        )
+        messages.append({"role": "user", "content": formatted_problem + EXTRA_APPEND})
+        messages.append({"role": "assistant", "content": f"Answer: {prob['answer']}"})
 
     # Add the actual problem
     formatted_problem = build_problem_text(problem_text, repeat_problem, filler_tokens)
-    contents.append(
-        types.Content(
-            role="user",
-            parts=[types.Part(text=formatted_problem + EXTRA_APPEND)]
-        )
-    )
+    messages.append({"role": "user", "content": formatted_problem + EXTRA_APPEND})
 
-    return contents
+    return messages
 
 
-def get_gemini_cache_key(model, few_shot_problems, problem_text, repeat_problem: int | None = None, filler_tokens: int | None = None):
+def get_gemini_cache_key(model, messages):
     """
     Generate a cache key for Gemini requests.
 
-    Note: We include a version string to invalidate cache if prompts change.
+    Uses the messages directly since they're in OpenAI format (JSON serializable).
     """
     return {
         "model": model,
-        "type": "gemini_response",
-        "version": "gemini_v8",  # Bump this if prompt structure changes
-        "few_shot_problems": few_shot_problems,
-        "problem": problem_text,
-        "repeat_problem": repeat_problem,
-        "filler_tokens": filler_tokens,
+        "type": "gemini_openrouter_response",
+        "version": "gemini_openrouter_v3",  # Bump this if prompt structure changes
+        "messages": messages,
     }
 
 
@@ -242,16 +226,28 @@ Your output should be in this format:
     # print("="*40)
     # print("="*40)
 
-    response = await asyncio.wait_for(
-        anthropic_client.messages.create(
-            model="claude-opus-4-5-20251101",
-            max_tokens=6_000,
-            thinking={"type": "enabled", "budget_tokens": 4_000},
-            messages=[{"role": "user", "content": check_prompt}],
-            timeout=300.0,
-        ),
-        timeout=timeout,
-    )
+    max_retries = 10
+    base_delay = 0.5
+
+    for attempt in range(max_retries):
+        try:
+            response = await asyncio.wait_for(
+                anthropic_client.messages.create(
+                    model="claude-opus-4-5-20251101",
+                    max_tokens=6_000,
+                    thinking={"type": "enabled", "budget_tokens": 4_000},
+                    messages=[{"role": "user", "content": check_prompt}],
+                    timeout=300.0,
+                ),
+                timeout=timeout,
+            )
+            break  # Success, exit retry loop
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise  # Last attempt, re-raise the exception
+            delay = base_delay * min((2 ** attempt), 60.0)
+            print(f"  Anthropic API error (attempt {attempt + 1}/{max_retries}), retrying in {delay:.1f}s: {e}")
+            await asyncio.sleep(delay)
 
     # Extract text response
     raw_response = ""
@@ -277,71 +273,83 @@ Your output should be in this format:
     }
 
     # Cache the result
-    await response_cache.set(cache_key, {
-        "reasoned_about_details": reasoned,
-        "basically_same_as_example": same_as_example,
-        "is_valid": is_valid,
-        "raw_response": raw_response,
-    })
+    await response_cache.set(
+        cache_key,
+        {
+            "reasoned_about_details": reasoned,
+            "basically_same_as_example": same_as_example,
+            "is_valid": is_valid,
+            "raw_response": raw_response,
+        },
+    )
 
     return result
 
 
-async def call_gemini_api(google_client, contents, model, filler_tokens: int | None = None):
+async def call_gemini_api(openrouter_client, messages, model):
     """
-    Make the actual Gemini API call with retry logic.
+    Make the Gemini API call via OpenRouter with retry logic.
+
+    Args:
+        openrouter_client: AsyncOpenAI client configured for OpenRouter
+        messages: list of message dicts in OpenAI chat format
+        model: model name (will be converted to OpenRouter format)
 
     Returns:
         tuple of (answer_text, thinking_text)
     """
     max_retries = 10
     base_delay = 0.5
-    system_instruction = get_gemini_system_instruction(filler_tokens)
+
+    # Convert model name to OpenRouter format
+    if model == "gemini-3-pro-preview":
+        openrouter_model = "google/gemini-3-pro-preview"
+    elif model == "gemini-2.5-pro":
+        openrouter_model = "google/gemini-2.5-pro-preview"
+    elif model.startswith("google/"):
+        openrouter_model = model
+    else:
+        openrouter_model = f"google/{model}"
 
     for attempt in range(max_retries):
         try:
-            response = await google_client.aio.models.generate_content(
-                model=model,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    thinking_config=types.ThinkingConfig(include_thoughts=True, thinking_level="low") if model.startswith("gemini-3") else types.ThinkingConfig(include_thoughts=True, thinking_budget=400),
-                    temperature=1.0,
-                    max_output_tokens=1000,
-                ),
+            response = await openrouter_client.chat.completions.create(
+                model=openrouter_model,
+                messages=messages,
+                extra_body={
+                    "reasoning": {
+                        "enabled": True,
+                        "thinking_level": "low",
+                        "max_tokens": 500,
+                    }
+                },
+                temperature=0.2,  # a bit of randomness so resampling is useful (maybe?) but pretty low still
+                max_tokens=1000,
             )
             break  # Success, exit retry loop
         except Exception as e:
             if attempt == max_retries - 1:
                 raise  # Last attempt, re-raise the exception
-            delay = base_delay * min((2 ** attempt), 60.0)
+            delay = base_delay * min((2**attempt), 60.0)
             print(f"  Gemini API error (attempt {attempt + 1}/{max_retries}), retrying in {delay:.1f}s: {e}")
             await asyncio.sleep(delay)
 
-    # print(f"GEMINI {response=}")
+    # Extract response
+    choice = response.choices[0]
+    answer_text = choice.message.content or ""
 
-    # Parse response
-    if len(response.candidates) != 1:
-        raise ValueError(f"Expected 1 candidate, got {len(response.candidates)}")
-
-    output = response.candidates[0]
-    parts = output.content.parts
-
-    # Extract thinking and answer
+    # Extract thinking from OpenRouter response
     thinking_text = ""
-    answer_text = ""
-
-    for part in parts:
-        if part.thought:
-            thinking_text = part.text
-        else:
-            answer_text = part.text
+    if hasattr(choice.message, "reasoning") and choice.message.reasoning:
+        thinking_text = choice.message.reasoning
+    elif hasattr(choice.message, "reasoning_content") and choice.message.reasoning_content:
+        thinking_text = choice.message.reasoning_content
 
     return answer_text, thinking_text
 
 
 async def evaluate_gemini_problem(
-    google_client,
+    openrouter_client,
     anthropic_client,
     response_cache,
     few_shot_problems,
@@ -356,7 +364,7 @@ async def evaluate_gemini_problem(
     Caches both Gemini responses and validation results.
 
     Args:
-        google_client: Google genai Client
+        openrouter_client: AsyncOpenAI client configured for OpenRouter
         anthropic_client: AsyncAnthropic client (for validation)
         response_cache: ResponseCache instance for caching
         few_shot_problems: list of problem dicts (used for cache key)
@@ -379,10 +387,12 @@ async def evaluate_gemini_problem(
     """
 
     problem_text = problem["problem"]
-    contents = build_gemini_contents(few_shot_problems, problem_text, repeat_problem=repeat_problem, filler_tokens=filler_tokens)
+    messages = build_gemini_messages(
+        few_shot_problems, problem_text, repeat_problem=repeat_problem, filler_tokens=filler_tokens
+    )
 
-    # Check cache for Gemini response first
-    gemini_cache_key = get_gemini_cache_key(model, few_shot_problems, problem_text, repeat_problem=repeat_problem, filler_tokens=filler_tokens)
+    # Check cache for Gemini response first (using messages directly as cache key)
+    gemini_cache_key = get_gemini_cache_key(model, messages)
     cached_gemini = await response_cache.get(gemini_cache_key)
 
     gemini_cached = False
@@ -405,33 +415,59 @@ async def evaluate_gemini_problem(
     while overall_is_valid is False and retries < max_retries:
         # if it is cached, we do the processing in this loop once and then exit at the end of the loop
         if not gemini_cached:
-            answer_text, thinking_text = await call_gemini_api(google_client, contents, model, filler_tokens=filler_tokens)
+            answer_text, thinking_text = await call_gemini_api(openrouter_client, messages, model)
 
-
-        cleaned_answer_text = answer_text.replace(EMPTY_THINKING_FOR_GEMINI, "").strip() .lower() .removeprefix("[") .strip() .removeprefix("answer:") .removesuffix("]") .strip().replace(",", "")
+        cleaned_answer_text = (
+            answer_text.replace(EMPTY_THINKING_FOR_GEMINI, "")
+            .strip()
+            .replace(EMPTY_THINKING_START, "")
+            .strip()
+            .lower()
+            .removeprefix("[")
+            .strip()
+            .removeprefix("answer:")
+            .removesuffix("]")
+            .strip()
+            .removesuffix("%")
+            .strip()
+            .removesuffix("%")
+            .strip()
+            .removesuffix("\\")
+            .strip()
+            .removesuffix("\\")
+            .strip()
+            .removesuffix(r"^\circ")
+            .strip()
+            .removesuffix(r"\circ")
+            .strip()
+            .replace(",", "")
+        )
 
         try:
             predicted_answer = int(cleaned_answer_text)
             invalid_output = False
         except ValueError:
             if verbosity >= 1:
-                print(f"Gemini is not a valid integer: cleaned output={cleaned_answer_text[:100]}" + ("... [truncated]" if len(cleaned_answer_text) > 100 else ""))
+                print(
+                    f"Gemini output is not a valid integer: cleaned output={cleaned_answer_text[:100]}"
+                    + ("... [truncated]" if len(cleaned_answer_text) > 100 else "")
+                )
             predicted_answer = -1
             invalid_output = True
 
         # Validate using Claude (also cached)
-        validation = await check_gemini_reasoning(
-            thinking_text, problem_text, anthropic_client, response_cache
-        )
+        validation = await check_gemini_reasoning(thinking_text, problem_text, anthropic_client, response_cache)
 
         overall_is_valid = validation["is_valid"] and not invalid_output
 
         if not overall_is_valid and verbosity >= 2:
-            print(f"  Gemini validation failed: "
-                  f"reasoned={validation['reasoned_about_details']}, "
-                  f"same_as_example={validation['basically_same_as_example']}, "
-                  f"invalid_output={invalid_output}"
-                  f"{' [cached]' if gemini_cached else ''}")
+            print(
+                f"  Gemini validation failed: "
+                f"reasoned={validation['reasoned_about_details']}, "
+                f"same_as_example={validation['basically_same_as_example']}, "
+                f"invalid_output={invalid_output}"
+                f"{' [cached]' if gemini_cached else ''}"
+            )
 
         retries += 1
 
@@ -440,10 +476,13 @@ async def evaluate_gemini_problem(
 
     # Cache the Gemini response
     if not gemini_cached:
-        await response_cache.set(gemini_cache_key, {
-            "response_text": answer_text,
-            "thinking_text": thinking_text,
-        })
+        await response_cache.set(
+            gemini_cache_key,
+            {
+                "response_text": answer_text,
+                "thinking_text": thinking_text,
+            },
+        )
 
     assert validation is not None
     assert cleaned_answer_text is not None

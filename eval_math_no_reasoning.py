@@ -79,7 +79,7 @@ OPENROUTER_MODELS = {
     "deepseek/deepseek-v3.2",
     "qwen/qwen3-235b-a22b",
     "qwen/qwen3-235b-a22b-2507",
-    "qwen/qwen3-coder", # 480B A35B
+    "qwen/qwen3-coder",  # 480B A35B
     "qwen/qwen3-32b",
     "moonshotai/kimi-k2",
 }
@@ -323,7 +323,7 @@ async def evaluate_problem(
                     )
 
                 gemini_result = await evaluate_gemini_problem(
-                    google_client,
+                    openrouter_client,
                     anthropic_client,
                     response_cache,
                     few_shot_problems,
@@ -355,8 +355,10 @@ async def evaluate_problem(
                     predicted_answer = -1
                     model_tried_to_reason = True
 
+                model_tried_to_reason = model_tried_to_reason or (not gemini_result["validation_passed"])
+
                 correct_answer = problem["answer"]
-                is_correct = predicted_answer == correct_answer
+                is_correct = (predicted_answer == correct_answer) and gemini_result["validation_passed"]
 
                 result = {
                     "problem_index": problem_index,
@@ -448,7 +450,12 @@ async def evaluate_problem(
         current_user_text += "\n\nAnswer:"
         openai_messages.append({"role": "user", "content": current_user_text})
         if "gpt-5" in model:
-            cache_key = {"model": model, "max_completion_tokens": max_tokens, "messages": openai_messages, "reasoning_effort": "none"}
+            cache_key = {
+                "model": model,
+                "max_completion_tokens": max_tokens,
+                "messages": openai_messages,
+                "reasoning_effort": "none",
+            }
         else:
             cache_key = {"model": model, "max_tokens": max_tokens, "messages": openai_messages}
         # print(json.dumps(openai_messages, indent=2))
@@ -677,14 +684,12 @@ async def run_evaluation(
     # print(problems_to_eval[-1])
     # assert False
 
-
     for problem, result in existing_results.items():
         if ("error" in result) != (result["predicted_answer"] is None):
             print(problem)
             print(result)
 
         assert ("error" in result) == (result["predicted_answer"] is None)
-
 
     # Separate problems into those with existing results and those needing evaluation
     problems_needing_eval = []
@@ -702,7 +707,9 @@ async def run_evaluation(
             problems_needing_eval.append((i, problem))
 
     if verbosity >= 1:
-        print(f"\nEvaluating {len(problems_needing_eval)} problems (skipping {len(preloaded_results)} already in output) with concurrency={concurrency}...")
+        print(
+            f"\nEvaluating {len(problems_needing_eval)} problems (skipping {len(preloaded_results)} already in output) with concurrency={concurrency}..."
+        )
 
     # Create semaphore to limit concurrency
     semaphore = asyncio.Semaphore(concurrency)
@@ -840,7 +847,7 @@ def parse_model_name(model_shorthand):
         "qwen3-32b": "qwen/qwen3-32b",
         "kimi-k2": "moonshotai/kimi-k2",
         # Gemini models
-        "gemini-2.5-pro": "gemini-2.5-pro",
+        "gemini-2-5-pro": "gemini-2.5-pro",
         "gemini-3-pro": "gemini-3-pro-preview",
     }
     return model_map.get(model_shorthand, model_shorthand)
