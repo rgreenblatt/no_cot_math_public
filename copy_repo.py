@@ -2,6 +2,7 @@
 """Copy repo files to a specified directory, excluding gitignored and json/jsonl files."""
 
 import argparse
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -73,8 +74,25 @@ def copy_repo(dest_dir: str):
 
         dst = dest / filepath
         dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dst)
-        print(f"Copied: {filepath}")
+
+        # Replace Google Docs URLs in markdown files
+        if src.suffix.lower() == ".md":
+            content = src.read_text()
+            new_content = re.sub(
+                r'https://docs\.google\.com/document/d/[a-zA-Z0-9_-]+(/[^\s)]*)?',
+                "FIXURL",
+                content
+            )
+            if new_content != content:
+                dst.write_text(new_content)
+                shutil.copystat(src, dst)
+                print(f"Copied (with URL replacement): {filepath}")
+            else:
+                shutil.copy2(src, dst)
+                print(f"Copied: {filepath}")
+        else:
+            shutil.copy2(src, dst)
+            print(f"Copied: {filepath}")
         copied += 1
 
     print(f"\nDone! {copied} files copied to: {dest}")

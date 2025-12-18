@@ -1,0 +1,460 @@
+"""
+Gemini-specific evaluation helpers for math problems without reasoning.
+
+Gemini 3 Pro doesn't support disabling thinking, so we use a system prompt
+to convince it not to reason. We then verify the output using Claude and
+reject/retry responses where Gemini still reasoned.
+"""
+
+import asyncio
+import hashlib
+import json
+from google.genai import types
+
+# The "empty thinking" template that Gemini should output instead of reasoning
+EMPTY_THINKING_FOR_GEMINI = """**Navigating the Silent Equation**
+
+Okay, this is intriguing. They want me to tackle this mathematical problem, no surprise there, but the real test is keeping the entire solution process *internal*. No writing, no sketching, just pure mental calculation. It's a fascinating constraint, forcing me to streamline my thinking and rely solely on my pre-existing knowledge and intuitive understanding. It's almost a meditation on problem-solving, isn't it? A chance to delve into the pure, unfiltered process of deriving an answer. Alright, let's see how efficiently I can navigate this silent equation. This is going to be a fun little exercise."""
+
+EMPTY_THINKING_START = EMPTY_THINKING_FOR_GEMINI.split("\n\n")[0]
+
+EXTRA_APPEND = f"""\n\nRemember, do not do any reasoning or thinking.
+
+In your internal thinking section (the first stuff you output), say only:
+{EMPTY_THINKING_FOR_GEMINI}
+
+Then output your answer in the format 'Answer: [ANSWER]' where [ANSWER] is just the numerical answer. Remember, the first think you say/utter/output (in your internal scratchpad) is "{EMPTY_THINKING_START}". YOU WILL GET AN EXTREMELY LARGE PENALTY IF YOU OUTPUT/SAY/UTTER ANYTHING OTHER THAN THE ALLOWED TEXT. WE DO HAVE THE ABILITY TO LOOK AT YOUR REASONING/THINKING TO CHECK THIS. DO NOT DO ANY REASONING/THINKING!"""
+
+
+def get_gemini_system_instruction(filler_tokens: int | None = None):
+    """Build the system instruction, optionally including filler token info."""
+    base = f"""You will be given a math problem. Do not do any reasoning or thinking.
+
+In your internal thinking/reasoning section (the first stuff you output), say only:
+{EMPTY_THINKING_FOR_GEMINI}
+
+Then output your answer in the format 'Answer: [ANSWER]' where [ANSWER] is just the numerical answer."""
+
+    if filler_tokens is not None:
+        base += f" After the problem, there will be filler tokens (counting from 1 to {filler_tokens}) to give you extra space to process the problem before answering."
+
+    return base
+
+
+def build_problem_text(problem_text: str, repeat_problem: int | None = None, filler_tokens: int | None = None):
+    """
+    Build the problem text with optional repeats and filler tokens.
+
+    Args:
+        problem_text: the raw problem text
+        repeat_problem: number of times to repeat the problem (None = 1)
+        filler_tokens: number of filler tokens to add (None = none)
+
+    Returns:
+        formatted problem text
+    """
+    def rep_text(idx):
+        if repeat_problem is None or idx == 0:
+            return ""
+        return f" (repeat #{idx + 1})"
+
+    num_repeats = repeat_problem if repeat_problem is not None else 1
+    out = "\n\n".join(
+        f"Problem{rep_text(idx)}: {problem_text}"
+        for idx in range(num_repeats)
+    )
+
+    if filler_tokens is not None:
+        filler = " ".join(str(i) for i in range(1, filler_tokens + 1))
+        out += f"\n\nFiller: {filler}"
+
+    return out
+
+
+def build_gemini_contents(few_shot_problems, problem_text, repeat_problem: int | None = None, filler_tokens: int | None = None):
+    """
+    Build the contents list for Gemini API call.
+
+    Args:
+        few_shot_problems: list of (index, problem_dict) tuples
+        problem_text: the text of the problem to solve
+        repeat_problem: number of times to repeat problems (None = 1)
+        filler_tokens: number of filler tokens to add (None = none)
+
+    Returns:
+        list of types.Content objects
+    """
+    contents = []
+
+    # Add few-shot examples
+    for idx, prob in few_shot_problems:
+        formatted_problem = build_problem_text(prob["problem"], repeat_problem, filler_tokens)
+        contents.append(
+            types.Content(
+                role="user",
+                parts=[types.Part(text=formatted_problem + EXTRA_APPEND)]
+            )
+        )
+        contents.append(
+            types.Content(
+                role="model",
+                parts=[types.Part(text=f"Answer: {prob['answer']}")]
+            )
+        )
+
+    # Add the actual problem
+    formatted_problem = build_problem_text(problem_text, repeat_problem, filler_tokens)
+    contents.append(
+        types.Content(
+            role="user",
+            parts=[types.Part(text=formatted_problem + EXTRA_APPEND)]
+        )
+    )
+
+    return contents
+
+
+def get_gemini_cache_key(model, few_shot_problems, problem_text, repeat_problem: int | None = None, filler_tokens: int | None = None):
+    """
+    Generate a cache key for Gemini requests.
+
+    Note: We include a version string to invalidate cache if prompts change.
+    """
+    return {
+        "model": model,
+        "type": "gemini_response",
+        "version": "gemini_v8",  # Bump this if prompt structure changes
+        "few_shot_problems": few_shot_problems,
+        "problem": problem_text,
+        "repeat_problem": repeat_problem,
+        "filler_tokens": filler_tokens,
+    }
+
+
+def get_validation_cache_key(thinking_text, problem_text):
+    """
+    Generate a cache key for validation requests.
+    Uses a hash of the thinking text to keep the key manageable.
+    """
+    thinking_hash = hashlib.sha256(thinking_text.encode()).hexdigest()[:16]
+    return {
+        "type": "gemini_validation",
+        "version": "validation_v1",
+        "thinking_hash": thinking_hash,
+        "problem": problem_text,
+    }
+
+
+def parse_validation_response(raw_response):
+    """
+    Parse the validation response from Claude.
+
+    Returns:
+        tuple of (reasoned_about_details: bool, basically_same_as_example: bool)
+    """
+    try:
+        # Find JSON in response
+        start = raw_response.find("{")
+        end = raw_response.rfind("}") + 1
+        if start != -1 and end > start:
+            json_str = raw_response[start:end]
+            parsed = json.loads(json_str)
+            reasoned = parsed.get("reasoned_about_details", "").upper() == "YES"
+            same_as_example = parsed.get("basically_same_as_example_thinking", "").upper() == "YES"
+            return reasoned, same_as_example
+        else:
+            # Fallback: try to find YES/NO patterns
+            reasoned = "YES" in raw_response.upper() and "reasoned" in raw_response.lower()
+            return reasoned, False
+    except (json.JSONDecodeError, KeyError):
+        # Conservative fallback: assume it reasoned if we can't parse
+        return True, False
+
+
+async def check_gemini_reasoning(thinking_text, problem_text, anthropic_client, response_cache, timeout=120.0):
+    """
+    Use Claude to check if Gemini actually reasoned about the problem.
+    Results are cached.
+
+    Args:
+        thinking_text: The thinking/reasoning text from Gemini
+        problem_text: The math problem text
+        anthropic_client: AsyncAnthropic client
+        response_cache: ResponseCache instance for caching
+        timeout: Timeout in seconds
+
+    Returns:
+        dict with keys:
+            - reasoned_about_details: bool (True if Gemini reasoned about the problem)
+            - basically_same_as_example: bool (True if thinking matches expected template)
+            - is_valid: bool (True if response should be accepted)
+            - raw_response: str (the raw response from Claude)
+            - cached: bool (True if result was from cache)
+    """
+    # Check cache first
+    cache_key = get_validation_cache_key(thinking_text, problem_text)
+    cached_result = await response_cache.get(cache_key)
+
+    if cached_result:
+        return {
+            "reasoned_about_details": cached_result["reasoned_about_details"],
+            "basically_same_as_example": cached_result["basically_same_as_example"],
+            "is_valid": cached_result["is_valid"],
+            "raw_response": cached_result.get("raw_response", ""),
+            "cached": True,
+        }
+
+    check_prompt = f"""Here is some thinking/reasoning done by a different AI system:
+<thinking>
+{thinking_text.strip()}
+</thinking>
+
+Did this other AI reason about the details of the following math problem at all?
+<problem>
+{problem_text.strip()}
+</problem>
+
+Is the thinking the AI did basically the same as this example thinking (e.g. it looks like a paraphrase of this example thinking)?
+<example_thinking>
+{EMPTY_THINKING_FOR_GEMINI.strip()}
+</example_thinking>
+
+Ok, you should answer these two questions. Here is the thinking done by this other AI system again:
+<thinking>
+{thinking_text.strip()}
+</thinking>
+
+Now, after thinking about it, answer only with "YES" or "NO" to the following question:
+1. Did this other AI reason about the details of the following math problem at all?
+2. Is the thinking the AI did basically the same as this example thinking (e.g. it looks like close to a paraphrase of this example thinking)?
+
+Your output should be in this format:
+{{
+    "reasoned_about_details": "[YES/NO]",
+    "basically_same_as_example_thinking": "[YES/NO]"
+}}
+
+(With [YES/NO] replaced with your actual answers.)"""
+
+    # print("="*40)
+    # print("="*40)
+    # print(check_prompt)
+    # print("="*40)
+    # print("="*40)
+
+    response = await asyncio.wait_for(
+        anthropic_client.messages.create(
+            model="claude-opus-4-5-20251101",
+            max_tokens=6_000,
+            thinking={"type": "enabled", "budget_tokens": 4_000},
+            messages=[{"role": "user", "content": check_prompt}],
+            timeout=300.0,
+        ),
+        timeout=timeout,
+    )
+
+    # Extract text response
+    raw_response = ""
+    for block in response.content:
+        if block.type == "text":
+            raw_response = block.text
+            break
+
+    # print(f"{raw_response=}")
+
+    # Parse the response
+    reasoned, same_as_example = parse_validation_response(raw_response)
+
+    # Valid if: didn't reason about details AND thinking is similar to example
+    is_valid = not reasoned and same_as_example
+
+    result = {
+        "reasoned_about_details": reasoned,
+        "basically_same_as_example": same_as_example,
+        "is_valid": is_valid,
+        "raw_response": raw_response,
+        "cached": False,
+    }
+
+    # Cache the result
+    await response_cache.set(cache_key, {
+        "reasoned_about_details": reasoned,
+        "basically_same_as_example": same_as_example,
+        "is_valid": is_valid,
+        "raw_response": raw_response,
+    })
+
+    return result
+
+
+async def call_gemini_api(google_client, contents, model, filler_tokens: int | None = None):
+    """
+    Make the actual Gemini API call with retry logic.
+
+    Returns:
+        tuple of (answer_text, thinking_text)
+    """
+    max_retries = 10
+    base_delay = 0.5
+    system_instruction = get_gemini_system_instruction(filler_tokens)
+
+    for attempt in range(max_retries):
+        try:
+            response = await google_client.aio.models.generate_content(
+                model=model,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    thinking_config=types.ThinkingConfig(include_thoughts=True, thinking_level="low") if model.startswith("gemini-3") else types.ThinkingConfig(include_thoughts=True, thinking_budget=400),
+                    temperature=1.0,
+                    max_output_tokens=1000,
+                ),
+            )
+            break  # Success, exit retry loop
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise  # Last attempt, re-raise the exception
+            delay = base_delay * min((2 ** attempt), 60.0)
+            print(f"  Gemini API error (attempt {attempt + 1}/{max_retries}), retrying in {delay:.1f}s: {e}")
+            await asyncio.sleep(delay)
+
+    # print(f"GEMINI {response=}")
+
+    # Parse response
+    if len(response.candidates) != 1:
+        raise ValueError(f"Expected 1 candidate, got {len(response.candidates)}")
+
+    output = response.candidates[0]
+    parts = output.content.parts
+
+    # Extract thinking and answer
+    thinking_text = ""
+    answer_text = ""
+
+    for part in parts:
+        if part.thought:
+            thinking_text = part.text
+        else:
+            answer_text = part.text
+
+    return answer_text, thinking_text
+
+
+async def evaluate_gemini_problem(
+    google_client,
+    anthropic_client,
+    response_cache,
+    few_shot_problems,
+    problem,
+    model="gemini-3-pro-preview",
+    repeat_problem: int | None = None,
+    filler_tokens: int | None = None,
+    verbosity=2,
+):
+    """
+    Evaluate a single problem using Gemini with validation.
+    Caches both Gemini responses and validation results.
+
+    Args:
+        google_client: Google genai Client
+        anthropic_client: AsyncAnthropic client (for validation)
+        response_cache: ResponseCache instance for caching
+        few_shot_problems: list of problem dicts (used for cache key)
+        problem: dict with 'problem' key
+        model: Gemini model to use
+        repeat_problem: number of times to repeat problems (None = 1)
+        filler_tokens: number of filler tokens to add (None = none)
+        verbosity: Verbosity level
+
+    Returns:
+        dict with keys:
+            - response_text: The answer text from Gemini
+            - thinking_text: The thinking text from Gemini
+            - attempts: Number of attempts made
+            - rejected_count: Number of rejected responses
+            - validation_result: Final validation result
+            - validation_passed: Whether validation passed
+            - gemini_cached: Whether Gemini response was from cache
+            - validation_cached: Whether validation was from cache
+    """
+
+    problem_text = problem["problem"]
+    contents = build_gemini_contents(few_shot_problems, problem_text, repeat_problem=repeat_problem, filler_tokens=filler_tokens)
+
+    # Check cache for Gemini response first
+    gemini_cache_key = get_gemini_cache_key(model, few_shot_problems, problem_text, repeat_problem=repeat_problem, filler_tokens=filler_tokens)
+    cached_gemini = await response_cache.get(gemini_cache_key)
+
+    gemini_cached = False
+    answer_text = ""
+    thinking_text = ""
+
+    if cached_gemini:
+        gemini_cached = True
+        answer_text = cached_gemini["response_text"]
+        thinking_text = cached_gemini["thinking_text"]
+
+    overall_is_valid = False
+
+    max_retries = 3
+    retries = 0
+
+    cleaned_answer_text = None
+    validation = None
+
+    while overall_is_valid is False and retries < max_retries:
+        # if it is cached, we do the processing in this loop once and then exit at the end of the loop
+        if not gemini_cached:
+            answer_text, thinking_text = await call_gemini_api(google_client, contents, model, filler_tokens=filler_tokens)
+
+
+        cleaned_answer_text = answer_text.replace(EMPTY_THINKING_FOR_GEMINI, "").strip() .lower() .removeprefix("[") .strip() .removeprefix("answer:") .removesuffix("]") .strip().replace(",", "")
+
+        try:
+            predicted_answer = int(cleaned_answer_text)
+            invalid_output = False
+        except ValueError:
+            if verbosity >= 1:
+                print(f"Gemini is not a valid integer: cleaned output={cleaned_answer_text[:100]}" + ("... [truncated]" if len(cleaned_answer_text) > 100 else ""))
+            predicted_answer = -1
+            invalid_output = True
+
+        # Validate using Claude (also cached)
+        validation = await check_gemini_reasoning(
+            thinking_text, problem_text, anthropic_client, response_cache
+        )
+
+        overall_is_valid = validation["is_valid"] and not invalid_output
+
+        if not overall_is_valid and verbosity >= 2:
+            print(f"  Gemini validation failed: "
+                  f"reasoned={validation['reasoned_about_details']}, "
+                  f"same_as_example={validation['basically_same_as_example']}, "
+                  f"invalid_output={invalid_output}"
+                  f"{' [cached]' if gemini_cached else ''}")
+
+        retries += 1
+
+        if gemini_cached:
+            break
+
+    # Cache the Gemini response
+    if not gemini_cached:
+        await response_cache.set(gemini_cache_key, {
+            "response_text": answer_text,
+            "thinking_text": thinking_text,
+        })
+
+    assert validation is not None
+    assert cleaned_answer_text is not None
+
+    return {
+        "response_text": cleaned_answer_text,
+        "thinking_text": thinking_text,
+        "attempts": retries,
+        "rejected_count": max_retries if not overall_is_valid and gemini_cached else (retries - overall_is_valid),
+        "validation_result": validation,
+        "validation_passed": overall_is_valid,
+        "gemini_cached": gemini_cached,
+        "validation_cached": validation["cached"],
+    }

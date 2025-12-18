@@ -11,7 +11,7 @@ from anthropic import AsyncAnthropic
 from response_cache import ResponseCache
 
 if "ANTHROPIC_API_KEY" not in os.environ:
-    key_path = os.path.expanduser("~/.anthropic_api_key_rr")
+    key_path = os.path.expanduser("~/.anthropic_api_key")
     try:
         with open(key_path, "r") as f:
             os.environ["ANTHROPIC_API_KEY"] = f.read().strip()

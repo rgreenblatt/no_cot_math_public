@@ -13,9 +13,10 @@ from openai import AsyncOpenAI
 from google import genai
 from google.genai import types
 from response_cache import ResponseCache
+from gemini_eval_helpers import evaluate_gemini_problem
 
 if "ANTHROPIC_API_KEY" not in os.environ:
-    key_path = os.path.expanduser("~/.anthropic_api_key_rr")
+    key_path = os.path.expanduser("~/.anthropic_api_key")
     try:
         with open(key_path, "r") as f:
             os.environ["ANTHROPIC_API_KEY"] = f.read().strip()
@@ -81,6 +82,12 @@ OPENROUTER_MODELS = {
     "qwen/qwen3-coder", # 480B A35B
     "qwen/qwen3-32b",
     "moonshotai/kimi-k2",
+}
+
+# Gemini models (require special handling - no native thinking disable)
+GEMINI_MODELS = {
+    "gemini-2.5-pro",
+    "gemini-3-pro-preview",
 }
 
 
@@ -304,6 +311,105 @@ async def evaluate_problem(
     is_openai_chat = model in OPENAI_CHAT_MODELS
     is_openrouter = model in OPENROUTER_MODELS
     is_openai = is_openai_completion or is_openai_chat
+    is_gemini = model in GEMINI_MODELS
+
+    # Handle Gemini models separately (they need special validation)
+    if is_gemini:
+        async with semaphore:
+            try:
+                if verbosity >= 2:
+                    print(
+                        f"Starting problem {problem_index + 1}: {problem.get('round')}, {problem.get('category')}, {problem.get('problem_number')}"
+                    )
+
+                gemini_result = await evaluate_gemini_problem(
+                    google_client,
+                    anthropic_client,
+                    response_cache,
+                    few_shot_problems,
+                    problem,
+                    model=model,
+                    repeat_problem=repeat_problem,
+                    filler_tokens=filler_tokens,
+                    verbosity=verbosity,
+                )
+
+                response_text = gemini_result["response_text"]
+
+                # Parse the answer
+                model_tried_to_reason = False
+                try:
+                    parsed_response = (
+                        response_text.strip()
+                        .lower()
+                        .removeprefix("[")
+                        .strip()
+                        .removeprefix("answer:")
+                        .removesuffix("]")
+                        .strip()
+                    )
+                    predicted_answer = int(parsed_response.replace(",", ""))
+                except ValueError:
+                    if verbosity >= 1:
+                        print(f"Response is not a valid integer: model_output={response_text}")
+                    predicted_answer = -1
+                    model_tried_to_reason = True
+
+                correct_answer = problem["answer"]
+                is_correct = predicted_answer == correct_answer
+
+                result = {
+                    "problem_index": problem_index,
+                    "problem_number": problem.get("problem_number", "N/A"),
+                    "category": problem.get("category", "N/A"),
+                    "round": problem.get("round", "N/A"),
+                    "correct_answer": correct_answer,
+                    "predicted_answer": predicted_answer,
+                    "is_correct": is_correct,
+                    "model_tried_to_reason": model_tried_to_reason,
+                    "response": response_text,
+                    "problem": problem["problem"],
+                    "cached": gemini_result["gemini_cached"],
+                    "modified_few_shot": modified_few_shot,
+                    # Gemini-specific fields
+                    "gemini_validation_passed": gemini_result["validation_passed"],
+                    "gemini_rejected_count": gemini_result["rejected_count"],
+                    "gemini_attempts": gemini_result["attempts"],
+                    "gemini_thinking": gemini_result["thinking_text"],
+                }
+
+                status = "✓ CORRECT" if is_correct else "✗ INCORRECT"
+                cache_status = "[CACHED]" if gemini_result["gemini_cached"] else ""
+                validation_status = "" if gemini_result["validation_passed"] else "[VALIDATION_FAILED]"
+                if verbosity >= 3:
+                    print(
+                        f"Completed problem {problem_index + 1}: {status} ({predicted_answer} vs {correct_answer}) {cache_status} {validation_status}"
+                    )
+
+                return result
+
+            except Exception as e:
+                import traceback
+
+                error_msg = str(e)
+                full_traceback = traceback.format_exc()
+                print(f"Error on problem {problem_index + 1}:")
+                print(f"  Error message: {error_msg}")
+                print(f"  Full error:\n{full_traceback}")
+                return {
+                    "problem_index": problem_index,
+                    "problem_number": problem.get("problem_number", "N/A"),
+                    "category": problem.get("category", "N/A"),
+                    "round": problem.get("round", "N/A"),
+                    "correct_answer": problem["answer"],
+                    "predicted_answer": None,
+                    "is_correct": False,
+                    "error": error_msg,
+                    "error_traceback": full_traceback,
+                    "problem": problem["problem"],
+                    "cached": False,
+                    "modified_few_shot": modified_few_shot,
+                }
 
     # Build few-shot messages for this problem
     few_shot_messages = build_few_shot_messages(
@@ -639,6 +745,11 @@ async def run_evaluation(
     accuracy = correct_count / len(results) if results else 0
     cache_hit_rate = cached_count / len(results) if results else 0
 
+    # Gemini-specific statistics
+    gemini_validation_failed_count = sum(1 for r in results if r.get("gemini_validation_passed") is False)
+    gemini_total_rejected = sum(r.get("gemini_rejected_count", 0) for r in results)
+    has_gemini_results = any("gemini_validation_passed" in r for r in results)
+
     if verbosity >= 1:
         print(f"\n{'='*60}")
         print(f"EVALUATION COMPLETE")
@@ -650,6 +761,9 @@ async def run_evaluation(
         print(f"Cache hits: {cached_count}/{len(results)} ({cache_hit_rate:.1%})")
         print(f"Loaded from output: {loaded_from_output_count}")
         print(f"Modified few-shot: {modified_few_shot_count}")
+        if has_gemini_results:
+            print(f"Gemini validation failures: {gemini_validation_failed_count}")
+            print(f"Gemini total rejected attempts: {gemini_total_rejected}")
 
     # Save results if output file specified
     if output_file:
@@ -665,6 +779,8 @@ async def run_evaluation(
                         "cache_hit_rate": cache_hit_rate,
                         "loaded_from_output": loaded_from_output_count,
                         "modified_few_shot": modified_few_shot_count,
+                        "gemini_validation_failed": gemini_validation_failed_count if has_gemini_results else None,
+                        "gemini_total_rejected": gemini_total_rejected if has_gemini_results else None,
                         "few_shot_indices": list(few_shot_indices),
                         "few_shot_problems": [
                             {
@@ -723,6 +839,9 @@ def parse_model_name(model_shorthand):
         "qwen3-480b-a35b": "qwen/qwen3-coder",
         "qwen3-32b": "qwen/qwen3-32b",
         "kimi-k2": "moonshotai/kimi-k2",
+        # Gemini models
+        "gemini-2.5-pro": "gemini-2.5-pro",
+        "gemini-3-pro": "gemini-3-pro-preview",
     }
     return model_map.get(model_shorthand, model_shorthand)
 
@@ -799,6 +918,11 @@ if __name__ == "__main__":
     # Parse model name
     model = parse_model_name(args.model)
 
+    # Override k_shot for Gemini models
+    k_shot = args.k_shot
+    if model in GEMINI_MODELS:
+        k_shot = 5
+
     if args.verbosity >= 1:
         print(f"Configuration:")
         print(f"  Model: {model}")
@@ -806,7 +930,7 @@ if __name__ == "__main__":
         print(f"  Max problems: {args.num_problems if args.num_problems else 'all'}")
         print("   Repeat problem:", args.repeat_problem if args.repeat_problem else "None")
         print("   Filler tokens:", args.filler_tokens if args.filler_tokens else "None")
-        print("   K-shot:", args.k_shot)
+        print("   K-shot:", k_shot)
         print("   Verbosity level:", args.verbosity)
         print(f"  Input: {args.input}")
         print(f"  Output: {args.output}")
@@ -822,6 +946,6 @@ if __name__ == "__main__":
             repeat_problem=args.repeat_problem,
             filler_tokens=args.filler_tokens,
             verbosity=args.verbosity,
-            k_shot=args.k_shot,
+            k_shot=k_shot,
         )
     )
