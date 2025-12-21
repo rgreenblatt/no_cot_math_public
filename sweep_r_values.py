@@ -198,6 +198,7 @@ def plot_results(results, r_values_disp, sweep_for_arith: bool = True, sweep_typ
         "sonnet-4": "#4ECDC4",
         "haiku-3-5": "#AA96DA",
         "haiku-3": "#F7D794",
+        "gpt-4.1": "#45B7D1",
     }
 
     # Markers for different models
@@ -208,6 +209,7 @@ def plot_results(results, r_values_disp, sweep_for_arith: bool = True, sweep_typ
         "sonnet-4": "D",
         "haiku-3-5": "v",
         "haiku-3": "P",
+        "gpt-4.1": "X",
     }
 
     # Plot each model
@@ -492,7 +494,7 @@ async def run_sweep(sweep_type: str, sweep_for_arith: bool, verbosity: int = 0):
     else:
         max_problems = None
 
-    models = ["opus-4-5", "opus-4", "sonnet-4-5", "sonnet-4", "haiku-3-5", "haiku-3"]
+    models = ["opus-4-5", "opus-4", "sonnet-4-5", "sonnet-4", "haiku-3-5", "haiku-3", "gpt-4.1"]
     # models = ["opus-4-5", "opus-4"]
 
     if sweep_for_arith:

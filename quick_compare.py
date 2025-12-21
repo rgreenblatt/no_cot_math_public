@@ -18,10 +18,12 @@ correct1 = np.array([x["is_correct"] for x in data1["results"]])
 correct2 = np.array([x["is_correct"] for x in data2["results"]])
 
 improves = correct2 & (~correct1)
+breaks = (~correct2) & correct1
 
 print(f"{correct1.sum()=}/{len(correct1)}")
 print(f"{correct2.sum()=}/{len(correct1)}")
 print(f"{improves.sum()=}/{len(correct1)}")
+print(f"{breaks.sum()=}/{len(correct1)}")
 
 problems_improves = [x["problem"] for x, imp in zip(data1["results"], improves) if imp]
 

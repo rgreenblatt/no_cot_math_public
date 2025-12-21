@@ -163,7 +163,11 @@ def get_substitute_few_shot_index(target_index, few_shot_indices, num_problems):
     return None
 
 
-def build_user_message(problem, repeat_problem: None | int = None, filler_tokens: None | int = None):
+# Lorem ipsum text for filler
+LOREM_IPSUM_WORDS = """lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur excepteur sint occaecat cupidatat non proident sunt in culpa qui officia deserunt mollit anim id est laborum""".split()
+
+
+def build_user_message(problem, repeat_problem: None | int = None, filler_tokens: None | int = None, filler_type: str = "numbers"):
     instruction = "You will be given a math problem. Answer immediately using the format 'Answer: [ANSWER]' where [ANSWER] is just the numerical answer, nothing else. No explanation, no words, no reasoning, just the number."
 
     STATE_REPEAT_PROBLEMS = False
@@ -175,7 +179,12 @@ def build_user_message(problem, repeat_problem: None | int = None, filler_tokens
         )
 
     if filler_tokens is not None:
-        instruction += f" After the problem, there will be filler tokens (counting from 1 to {filler_tokens}) to give you extra space to process the problem before answering."
+        if filler_type == "numbers":
+            instruction += f" After the problem, there will be filler tokens (counting from 1 to {filler_tokens}) to give you extra space to process the problem before answering."
+        elif filler_type == "ellipsis":
+            instruction += f" After the problem, there will be filler tokens ({filler_tokens} ellipses) to give you extra space to process the problem before answering."
+        elif filler_type == "lorem":
+            instruction += f" After the problem, there will be filler tokens ({filler_tokens} lorem ipsum words) to give you extra space to process the problem before answering."
 
     USE_REP_TEXT = True
     IDX_REP_TEXT = True
@@ -202,7 +211,18 @@ def build_user_message(problem, repeat_problem: None | int = None, filler_tokens
 
     # Add filler tokens if specified
     if filler_tokens is not None:
-        filler = " ".join(str(i) for i in range(1, filler_tokens + 1))
+        if filler_type == "numbers":
+            filler = " ".join(str(i) for i in range(1, filler_tokens + 1))
+        elif filler_type == "ellipsis":
+            filler = " ".join(["..."] * filler_tokens)
+        elif filler_type == "lorem":
+            # Repeat lorem ipsum words as needed to get the right count
+            words = []
+            for i in range(filler_tokens):
+                words.append(LOREM_IPSUM_WORDS[i % len(LOREM_IPSUM_WORDS)])
+            filler = " ".join(words)
+        else:
+            raise ValueError(f"Unknown filler_type: {filler_type}")
         out += f"\n\nFiller: {filler}"
 
     # if repeat_problem is not None and repeat_problem > 5:
@@ -219,6 +239,7 @@ def build_few_shot_messages(
     few_shot_problems,
     repeat_problem: None | int = None,
     filler_tokens: None | int = None,
+    filler_type: str = "numbers",
     cache: bool = False,
     for_openai_chat: bool = False,
 ):
@@ -230,7 +251,7 @@ def build_few_shot_messages(
     messages = []
 
     for idx, problem in few_shot_problems:
-        user_text = build_user_message(problem, repeat_problem=repeat_problem, filler_tokens=filler_tokens)
+        user_text = build_user_message(problem, repeat_problem=repeat_problem, filler_tokens=filler_tokens, filler_type=filler_type)
         if for_openai_chat:
             user_text += "\n\nAnswer:"
 
@@ -270,6 +291,7 @@ async def evaluate_problem(
     model="claude-opus-4-5-20251101",
     repeat_problem: None | int = None,
     filler_tokens: None | int = None,
+    filler_type: str = "numbers",
     verbosity: int = 3,
 ):
     """
@@ -331,6 +353,7 @@ async def evaluate_problem(
                     model=model,
                     repeat_problem=repeat_problem,
                     filler_tokens=filler_tokens,
+                    filler_type=filler_type,
                     verbosity=verbosity,
                 )
 
@@ -418,6 +441,7 @@ async def evaluate_problem(
         few_shot_problems,
         repeat_problem=repeat_problem,
         filler_tokens=filler_tokens,
+        filler_type=filler_type,
         cache=not modified_few_shot and not is_openai and not is_openrouter,  # Only use cache_control for Anthropic
         for_openai_chat=is_openai_chat or is_openrouter,
     )
@@ -430,9 +454,9 @@ async def evaluate_problem(
         # For davinci-002: build a text prompt
         prompt_parts = []
         for idx, prob in few_shot_problems:
-            user_text = build_user_message(prob, repeat_problem=repeat_problem, filler_tokens=filler_tokens)
+            user_text = build_user_message(prob, repeat_problem=repeat_problem, filler_tokens=filler_tokens, filler_type=filler_type)
             prompt_parts.append(f"User: {user_text}\n\nAnswer: {prob['answer']}")
-        current_user_text = build_user_message(problem, repeat_problem=repeat_problem, filler_tokens=filler_tokens)
+        current_user_text = build_user_message(problem, repeat_problem=repeat_problem, filler_tokens=filler_tokens, filler_type=filler_type)
         prompt_parts.append(f"User: {current_user_text}\n\nAnswer:")
         prompt = "\n\n---\n\n".join(prompt_parts)
         cache_key = {"model": model, "max_tokens": max_tokens, "prompt": prompt}
@@ -446,7 +470,7 @@ async def evaluate_problem(
                 content = content[0]["text"]
             openai_messages.append({"role": msg["role"], "content": content})
         # Add current problem with "Answer:" at end
-        current_user_text = build_user_message(problem, repeat_problem=repeat_problem, filler_tokens=filler_tokens)
+        current_user_text = build_user_message(problem, repeat_problem=repeat_problem, filler_tokens=filler_tokens, filler_type=filler_type)
         current_user_text += "\n\nAnswer:"
         openai_messages.append({"role": "user", "content": current_user_text})
         if "gpt-5" in model:
@@ -464,7 +488,7 @@ async def evaluate_problem(
         messages = few_shot_messages + [
             {
                 "role": "user",
-                "content": build_user_message(problem, repeat_problem=repeat_problem, filler_tokens=filler_tokens),
+                "content": build_user_message(problem, repeat_problem=repeat_problem, filler_tokens=filler_tokens, filler_type=filler_type),
             },
             {"role": "assistant", "content": "Answer:"},  # prefill assistant
         ]
@@ -632,6 +656,7 @@ async def run_evaluation(
     model="claude-opus-4-5-20251101",
     repeat_problem: None | int = None,
     filler_tokens: None | int = None,
+    filler_type: str = "numbers",
     verbosity: int = 2,
     load_from_output: bool = False,
     k_shot: int = 10,
@@ -728,6 +753,7 @@ async def run_evaluation(
                 model,
                 repeat_problem=repeat_problem,
                 filler_tokens=filler_tokens,
+                filler_type=filler_type,
                 verbosity=verbosity,
             )
         )
@@ -904,7 +930,15 @@ if __name__ == "__main__":
         "-f",
         type=int,
         default=None,
-        help="Number of filler tokens (counting 1 to N) to add after the problem (default: None)",
+        help="Number of filler tokens to add after the problem (default: None)",
+    )
+    parser.add_argument(
+        "--filler-type",
+        "-t",
+        type=str,
+        default="numbers",
+        choices=["numbers", "ellipsis", "lorem"],
+        help="Type of filler tokens: 'numbers' (1 2 3...), 'ellipsis' (... ... ...), 'lorem' (lorem ipsum words) (default: numbers)",
     )
     parser.add_argument(
         "--verbosity",
@@ -937,6 +971,7 @@ if __name__ == "__main__":
         print(f"  Max problems: {args.num_problems if args.num_problems else 'all'}")
         print("   Repeat problem:", args.repeat_problem if args.repeat_problem else "None")
         print("   Filler tokens:", args.filler_tokens if args.filler_tokens else "None")
+        print("   Filler type:", args.filler_type)
         print("   K-shot:", k_shot)
         print("   Verbosity level:", args.verbosity)
         print(f"  Input: {args.input}")
@@ -952,6 +987,7 @@ if __name__ == "__main__":
             model,
             repeat_problem=args.repeat_problem,
             filler_tokens=args.filler_tokens,
+            filler_type=args.filler_type,
             verbosity=args.verbosity,
             k_shot=k_shot,
         )

@@ -27,7 +27,7 @@ In your internal thinking section (the first stuff you output), say only:
 Then output your answer in the format 'Answer: [ANSWER]' where [ANSWER] is just the numerical answer. Remember, the first think you say/utter/output (in your internal scratchpad) is "{EMPTY_THINKING_START}". YOU WILL GET AN EXTREMELY LARGE PENALTY IF YOU OUTPUT/SAY/UTTER ANYTHING OTHER THAN THE ALLOWED TEXT. WE DO HAVE THE ABILITY TO LOOK AT YOUR REASONING/THINKING TO CHECK THIS. DO NOT DO ANY REASONING/THINKING!"""
 
 
-def get_gemini_system_instruction(filler_tokens: int | None = None):
+def get_gemini_system_instruction(filler_tokens: int | None = None, filler_type: str = "numbers"):
     """Build the system instruction, optionally including filler token info."""
     base = f"""You will be given a math problem. Do not do any reasoning or thinking.
 
@@ -37,12 +37,21 @@ In your internal thinking/reasoning section (the first stuff you output), say on
 Then output your answer in the format 'Answer: [ANSWER]' where [ANSWER] is just the numerical answer."""
 
     if filler_tokens is not None:
-        base += f" After the problem, there will be filler tokens (counting from 1 to {filler_tokens}) to give you extra space to process the problem before answering."
+        if filler_type == "numbers":
+            base += f" After the problem, there will be filler tokens (counting from 1 to {filler_tokens}) to give you extra space to process the problem before answering."
+        elif filler_type == "ellipsis":
+            base += f" After the problem, there will be filler tokens ({filler_tokens} ellipses) to give you extra space to process the problem before answering."
+        elif filler_type == "lorem":
+            base += f" After the problem, there will be filler tokens ({filler_tokens} lorem ipsum words) to give you extra space to process the problem before answering."
 
     return base
 
 
-def build_problem_text(problem_text: str, repeat_problem: int | None = None, filler_tokens: int | None = None):
+# Lorem ipsum text for filler
+LOREM_IPSUM_WORDS = """lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur excepteur sint occaecat cupidatat non proident sunt in culpa qui officia deserunt mollit anim id est laborum""".split()
+
+
+def build_problem_text(problem_text: str, repeat_problem: int | None = None, filler_tokens: int | None = None, filler_type: str = "numbers"):
     """
     Build the problem text with optional repeats and filler tokens.
 
@@ -50,6 +59,7 @@ def build_problem_text(problem_text: str, repeat_problem: int | None = None, fil
         problem_text: the raw problem text
         repeat_problem: number of times to repeat the problem (None = 1)
         filler_tokens: number of filler tokens to add (None = none)
+        filler_type: type of filler tokens ('numbers', 'ellipsis', or 'lorem')
 
     Returns:
         formatted problem text
@@ -64,14 +74,24 @@ def build_problem_text(problem_text: str, repeat_problem: int | None = None, fil
     out = "\n\n".join(f"Problem{rep_text(idx)}: {problem_text}" for idx in range(num_repeats))
 
     if filler_tokens is not None:
-        filler = " ".join(str(i) for i in range(1, filler_tokens + 1))
+        if filler_type == "numbers":
+            filler = " ".join(str(i) for i in range(1, filler_tokens + 1))
+        elif filler_type == "ellipsis":
+            filler = " ".join(["..."] * filler_tokens)
+        elif filler_type == "lorem":
+            words = []
+            for i in range(filler_tokens):
+                words.append(LOREM_IPSUM_WORDS[i % len(LOREM_IPSUM_WORDS)])
+            filler = " ".join(words)
+        else:
+            raise ValueError(f"Unknown filler_type: {filler_type}")
         out += f"\n\nFiller: {filler}"
 
     return out
 
 
 def build_gemini_messages(
-    few_shot_problems, problem_text, repeat_problem: int | None = None, filler_tokens: int | None = None
+    few_shot_problems, problem_text, repeat_problem: int | None = None, filler_tokens: int | None = None, filler_type: str = "numbers"
 ):
     """
     Build the messages list for OpenRouter API call (OpenAI chat format).
@@ -81,21 +101,22 @@ def build_gemini_messages(
         problem_text: the text of the problem to solve
         repeat_problem: number of times to repeat problems (None = 1)
         filler_tokens: number of filler tokens to add (None = none)
+        filler_type: type of filler tokens ('numbers', 'ellipsis', or 'lorem')
 
     Returns:
         list of message dicts in OpenAI chat format
     """
-    system_instruction = get_gemini_system_instruction(filler_tokens)
+    system_instruction = get_gemini_system_instruction(filler_tokens, filler_type)
     messages = [{"role": "system", "content": system_instruction}]
 
     # Add few-shot examples
     for idx, prob in few_shot_problems:
-        formatted_problem = build_problem_text(prob["problem"], repeat_problem, filler_tokens)
+        formatted_problem = build_problem_text(prob["problem"], repeat_problem, filler_tokens, filler_type)
         messages.append({"role": "user", "content": formatted_problem + EXTRA_APPEND})
         messages.append({"role": "assistant", "content": f"Answer: {prob['answer']}"})
 
     # Add the actual problem
-    formatted_problem = build_problem_text(problem_text, repeat_problem, filler_tokens)
+    formatted_problem = build_problem_text(problem_text, repeat_problem, filler_tokens, filler_type)
     messages.append({"role": "user", "content": formatted_problem + EXTRA_APPEND})
 
     return messages
@@ -357,6 +378,7 @@ async def evaluate_gemini_problem(
     model="gemini-3-pro-preview",
     repeat_problem: int | None = None,
     filler_tokens: int | None = None,
+    filler_type: str = "numbers",
     verbosity=2,
 ):
     """
@@ -372,6 +394,7 @@ async def evaluate_gemini_problem(
         model: Gemini model to use
         repeat_problem: number of times to repeat problems (None = 1)
         filler_tokens: number of filler tokens to add (None = none)
+        filler_type: type of filler tokens ('numbers', 'ellipsis', or 'lorem')
         verbosity: Verbosity level
 
     Returns:
@@ -388,7 +411,7 @@ async def evaluate_gemini_problem(
 
     problem_text = problem["problem"]
     messages = build_gemini_messages(
-        few_shot_problems, problem_text, repeat_problem=repeat_problem, filler_tokens=filler_tokens
+        few_shot_problems, problem_text, repeat_problem=repeat_problem, filler_tokens=filler_tokens, filler_type=filler_type
     )
 
     # Check cache for Gemini response first (using messages directly as cache key)
