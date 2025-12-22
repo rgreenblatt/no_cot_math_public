@@ -1,4 +1,4 @@
-# Recent LLMs can leverage filler tokens or repeated problems to improve (no-CoT) math performance
+# Recent LLMs can use filler tokens or problem repeats to improve (no-CoT) math performance
 
 
 [Prior](https://www.lesswrong.com/posts/oSZ2xTxEMZh9f3Yaz/llms-are-mostly-not-helped-by-filler-tokens) [results](https://www-files.anthropic.com/production/files/measuring-faithfulness-in-chain-of-thought-reasoning.pdf) [have](https://www.lesswrong.com/posts/XaKLjyDejtXDoRAzL/a-quick-experiment-on-lms-inductive-biases-in-performing#Appendix) shown that LLMs released before 2024 can't leverage 'filler tokens'—unrelated tokens prior to the model's final answer—to perform additional computation and improve performance.[^withouttraining]
