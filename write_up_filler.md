@@ -7,6 +7,8 @@ That is, I force the LLM to answer some math question immediately without being 
 Giving Opus 4.5 filler tokens[^counting] boosts no-CoT performance from 45% to 51% (p=4e-7) on a dataset of relatively easy (competition) math problems[^middle].
 I find a similar effect from repeating the problem statement many times, e.g. Opus 4.5's no-CoT performance is boosted from 45% to 51%.
 
+![](https://raw.githubusercontent.com/rgreenblatt/no_cot_math_public/master/figure1.png)
+
 [^withouttraining]: As in, they can't do this without specialized training. [Let's Think Dot By Dot](https://arxiv.org/abs/2404.15758) demonstrates that LLMs can be trained to leverage filler tokens within a narrow algorithmic task.
 
 
