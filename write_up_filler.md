@@ -30,9 +30,11 @@ Ideally we wouldn't only discover meta-cognitive abilities are present long afte
 
 Code for these experiments can be found at [github.com/rgreenblatt/no_cot_math_public](https://github.com/rgreenblatt/no_cot_math_public).
 
+*[Thanks to Fabien Roger for an initial discussion about no-CoT math performance that inspired these results. Thanks to Fabien Roger for running some evaluations for me on Opus 3, Sonnet 3.5, Sonnet 3.6, and Sonnet 3.7 (these models are no longer publicly deployed by Anthropic). Thanks to James Lucassen, Alex Mallen, Buck Shlegeris, Fabien Roger, and Tao Lin for comments and/or discussion.]*
+
 [^counting]: Counting from 1 to 300 like "Filler: 1 2 ... 300".
 
-[^middle]: This dataset consists of around 600 (easy) middle school competition math problems from MATHCOUNTS and around 300 high school competition math problems from relatively obscure Hungarian high school math competitions. The MATHCOUNTS problems are often very easy and require approximately no insight beyond basic algebra skills. I describe this dataset in more detail in X. 
+[^middle]: This dataset consists of around 600 (easy) middle school competition math problems from MATHCOUNTS and around 300 high school competition math problems from relatively obscure Hungarian high school math competitions. The problems are often very easy and require approximately no insight beyond basic algebra skills.
 
 # Datasets
 
