@@ -204,8 +204,8 @@ ax2.spines['top'].set_visible(False)
 ax2.spines['right'].set_visible(False)
 
 # Add main figure title
-fig.suptitle('Filler tokens and problem repeats improve no-CoT math performance',
-             fontsize=14, fontweight='bold', y=1.02)
+fig.suptitle('Filler tokens and problem repeats increase no Chain-of-Thought (CoT) math performance',
+             fontsize=14, fontweight='bold', y=1.02, x=0.52)
 
 plt.savefig('figure1.png', dpi=300, bbox_inches='tight', facecolor='white')
 plt.savefig('figure1.pdf', bbox_inches='tight', facecolor='white')
