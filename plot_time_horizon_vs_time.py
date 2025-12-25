@@ -6,6 +6,7 @@ Shows exponential growth in model capabilities over time.
 
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 from datetime import datetime
 from scipy.optimize import curve_fit
 
@@ -110,10 +111,11 @@ def main():
 
     ax1.set_xlabel('Release Date', fontsize=12)
     ax1.set_ylabel('Time Horizon (minutes)', fontsize=12)
-    ax1.set_title('Single Forward Pass Math Time Horizon vs Time\n(Linear Scale)', fontsize=13)
+    ax1.set_title('No Chain-of-Thought Math Time Horizon vs Time\n(Linear Scale)', fontsize=13)
     ax1.legend(loc='upper left')
     ax1.grid(True, alpha=0.3)
     ax1.set_ylim(0, max(time_horizons) * 1.3)
+    ax1.set_yticks([0.5, 1, 2, 3, 4])
 
     # Format x-axis dates
     ax1.tick_params(axis='x', rotation=30)
@@ -134,16 +136,18 @@ def main():
 
     ax2.set_xlabel('Release Date', fontsize=12)
     ax2.set_ylabel('Time Horizon (minutes, log scale)', fontsize=12)
-    ax2.set_title('Single Forward Pass Math Time Horizon vs Time\n(Log Scale - Exponential appears linear)', fontsize=13)
-    ax2.set_yscale('log')
+    ax2.set_title('No Chain-of-Thought Math Time Horizon vs Time\n(Log Scale - Exponential appears linear)', fontsize=13)
+    ax2.set_yscale('log', base=2)
+    ax2.set_yticks([0.5, 1, 2, 3, 4])
+    ax2.get_yaxis().set_major_formatter(ticker.ScalarFormatter())
     ax2.legend(loc='upper left')
-    ax2.grid(True, alpha=0.3, which='both')
+    ax2.grid(True, alpha=0.3, which='major')
 
     # Format x-axis dates
     ax2.tick_params(axis='x', rotation=30)
 
     # Set y-axis limits for log scale
-    ax2.set_ylim(0.2, max(time_horizons) * 2)
+    ax2.set_ylim(0.25, 5)
 
     plt.tight_layout()
 
@@ -201,6 +205,7 @@ def main():
     ax3.legend(loc='upper left')
     ax3.grid(True, alpha=0.3)
     ax3.set_ylim(0, max(max(th_fit), max(time_horizons_nr)) * 1.3)
+    ax3.set_yticks([0.5, 1, 2, 3, 4])
     ax3.tick_params(axis='x', rotation=30)
 
     # --- Comparison Plot 2: Log scale ---
@@ -224,10 +229,12 @@ def main():
     ax4.set_xlabel('Release Date', fontsize=12)
     ax4.set_ylabel('Time Horizon (minutes, log scale)', fontsize=12)
     ax4.set_title('Comparison: With vs Without Repeat/Filler\n(Log Scale)', fontsize=13)
-    ax4.set_yscale('log')
+    ax4.set_yscale('log', base=2)
+    ax4.set_yticks([0.5, 1, 2, 3, 4])
+    ax4.get_yaxis().set_major_formatter(ticker.ScalarFormatter())
     ax4.legend(loc='upper left')
-    ax4.grid(True, alpha=0.3, which='both')
-    ax4.set_ylim(0.2, max(max(th_fit), max(time_horizons_nr)) * 2)
+    ax4.grid(True, alpha=0.3, which='major')
+    ax4.set_ylim(0.25, 5)
     ax4.tick_params(axis='x', rotation=30)
 
     plt.tight_layout()

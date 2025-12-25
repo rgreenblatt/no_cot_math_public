@@ -4,7 +4,7 @@ A key risk factor for scheming (and misalignment more generally) is [opaque reas
 One proxy for this is how good AIs are at solving math problems immediately without any chain-of-thought (CoT) (as in, in a single forward pass).
 I've measured this on a dataset of easy math problems and used this to estimate 50% reliability no-CoT time horizon using the same methodology introduced in [Measuring AI Ability to Complete Long Tasks](https://metr.org/blog/2025-03-19-measuring-ai-ability-to-complete-long-tasks/) (the METR time horizon paper).
 
-To get human completion times, I ask Opus 4.5 to estimate how long it would take the median AIME participant to complete a given problem.
+**Important caveat: To get human completion times, I ask Opus 4.5 to estimate how long it would take the median AIME participant to complete a given problem.**
 These times seem roughly reasonable to me, but getting some actual human baselines and using these to correct Opus 4.5's estimates would be better.
 
 Here are the 50% reliability time horizon results:
