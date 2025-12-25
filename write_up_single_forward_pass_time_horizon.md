@@ -4,7 +4,7 @@ A key risk factor for scheming (and misalignment more generally) is [opaque reas
 One proxy for this is how good AIs are at solving math problems immediately without any chain-of-thought (CoT) (as in, in a single forward pass).
 I've measured this on a dataset of easy math problems and used this to estimate 50% reliability no-CoT time horizon using the same methodology introduced in [Measuring AI Ability to Complete Long Tasks](https://metr.org/blog/2025-03-19-measuring-ai-ability-to-complete-long-tasks/) (the METR time horizon paper).
 
-**Important caveat: To get human completion times, I ask Opus 4.5 to estimate how long it would take the median AIME participant to complete a given problem.**
+**Important caveat: To get human completion times, I ask Opus 4.5 (with thinking) to estimate how long it would take the median AIME participant to complete a given problem.**
 These times seem roughly reasonable to me, but getting some actual human baselines and using these to correct Opus 4.5's estimates would be better.
 
 Here are the 50% reliability time horizon results:
@@ -13,7 +13,7 @@ Here are the 50% reliability time horizon results:
 
 I find that Opus 4.5 has a no-CoT 50% reliability time horizon of 3.5 minutes and that time horizon has been doubling every 9 months.
 
-In an earlier post ([Recent LLMs can leverage filler tokens or repeated problems to improve (no-CoT) math performance](FIXURL) (*TODO: link*)), I found that repeating the problem substantially boosts performance.
+In an earlier post ([Recent LLMs can leverage filler tokens or repeated problems to improve (no-CoT) math performance](https://www.lesswrong.com/posts/NYzYJ2WoB74E6uj9L/recent-llms-can-use-filler-tokens-or-problem-repeats-to)), I found that repeating the problem substantially boosts performance.
 In the above plot, if repeating the problem 5 times in the prompt helps some model, I use the score with repeats (because I think this somewhat more conservative measurement is plausibly more representative of the concerning type of cognition).
 
 The fit appears very clean, but note that I've opinionatedly just done the fit on frontier Anthropic models (specifically, I exclude DeepSeek-v3 which was barely SOTA at the time of release).
@@ -31,7 +31,7 @@ For the relatively more capable models I evaluate, I find that the fit for time 
 
 I intentionally gathered a dataset of relatively easy math problems with many problems in the 1-5 minute range to make this measurement reasonable.
 This dataset doesn't do a good job of measuring time horizons below around 0.5 minutes (and I exclude such models from the plot).
-Here is a histogram showing the time and difficulty distribution[^diff]
+Here is a histogram showing the time and difficulty distribution:[^diff]
 
 ![](https://raw.githubusercontent.com/rgreenblatt/no_cot_math_public/master/difficulty_histograms.png)
 
@@ -39,7 +39,7 @@ Here is a histogram showing the time and difficulty distribution[^diff]
 
 The math dataset I use is one I created that consists of 907 mostly easy competition math problems. This dataset consists of around 600 (easy) middle school competition math problems from MATHCOUNTS and around 300 problems from relatively obscure Hungarian high school math competitions. Many of the MATHCOUNTS problems just require some pretty basic algebra and then some arithmetic. I'm pretty confident this dataset isn't strongly contaminated but it is plausible that contamination materially affects the results and the problems might be highly similar to problems that the AIs have memorized.
 
-For more details on the dataset I use and my overall setup, see my [prior post on filler tokens and repeated problems](FIXURL) (*TODO: link*) as that uses the same setup.
+For more details on the dataset I use and my overall setup, see my [prior post on filler tokens and repeated problems](https://www.lesswrong.com/posts/NYzYJ2WoB74E6uj9L/recent-llms-can-use-filler-tokens-or-problem-repeats-to) as that uses the same setup.
 You can find the code for these experiments at [github.com/rgreenblatt/no_cot_math_public](https://github.com/rgreenblatt/no_cot_math_public).
 
 # Analysis
