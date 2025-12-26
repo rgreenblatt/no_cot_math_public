@@ -264,6 +264,7 @@ This yields the following difficulty and solve time distribution:
 | sonnet-4 | 28.0% | 33.8% | 36.1% | 36.9% | 36.4% | 35.8% | 35.4% |
 | haiku-3-5 | 9.5% | 10.5% | 10.7% | 10.4% | 10.0% | 9.3% | 9.4% |
 | haiku-3 | 6.1% | 7.2% | 7.2% | 6.4% | 6.2% | 6.1% | 5.5% |
+| gpt-4.1 | 15.3% | 16.5% | 16.4% | 15.2% | 15.1% | 14.8% | 14.2% |
 
 ## Gen-Arithmetic - Filler
 
@@ -275,6 +276,7 @@ This yields the following difficulty and solve time distribution:
 | sonnet-4 | 28.3% | 33.2% | 35.0% | 33.2% | 33.0% |
 | haiku-3-5 | 8.0% | 10.2% | 9.2% | 8.5% | 8.8% |
 | haiku-3 | 5.5% | 5.5% | 6.5% | 4.8% | 4.5% |
+| gpt-4.1 | 15.8% | 16.0% | 14.3% | 14.5% | 11.0% |
 
 ## Easy-Comp-Math - Repetitions
 
@@ -286,6 +288,7 @@ This yields the following difficulty and solve time distribution:
 | sonnet-4 | 30.2% | 34.6% | 34.8% | 35.3% | 35.8% |
 | haiku-3-5 | 12.1% | 13.6% | 13.0% | 13.9% | 13.3% |
 | haiku-3 | 9.7% | 10.7% | 10.3% | 10.1% | 9.3% |
+| gpt-4.1 | 20.2% | 21.7% | 22.5% | 22.4% | 21.7% |
 
 ## Easy-Comp-Math - Filler
 
@@ -297,6 +300,7 @@ This yields the following difficulty and solve time distribution:
 | sonnet-4 | 30.2% | 33.7% | 35.6% | 35.5% | 33.5% | 32.6% |
 | haiku-3-5 | 12.1% | 12.7% | 12.5% | 12.9% | 12.1% | 10.8% |
 | haiku-3 | 9.7% | 9.5% | 9.2% | 10.3% | 9.5% | 9.5% |
+| gpt-4.1 | 20.2% | 20.5% | 21.7% | 20.8% | 20.9% | 20.0% |
 
 ## Partial Sweep - Gen-Arithmetic - Repetitions
 
@@ -307,8 +311,10 @@ This yields the following difficulty and solve time distribution:
 | sonnet-4-5 | 36.8% | 42.7% | 6.85e-04 |
 | sonnet-4 | 28.3% | 36.7% | 1.53e-06 |
 | haiku-3-5 | 7.8% | 9.8% | 0.0338 |
-| haiku-3 | 5.3% | 6.3% | 0.2011 |
+| haiku-3 | 5.3% | 6.5% | 0.1445 |
 | haiku-4-5 | 12.5% | 13.0% | 0.6806 |
+| gemini-2-5-pro | 43.2% | 60.3% | 1.82e-19 |
+| gemini-3-pro | 53.2% | 68.3% | 5.58e-12 |
 | gpt-3.5 | 6.7% | 6.8% | 0.7818 |
 | gpt-4 | 10.5% | 10.8% | 0.7240 |
 | gpt-4o | 15.0% | 14.3% | 0.5469 |
@@ -329,6 +335,8 @@ This yields the following difficulty and solve time distribution:
 | haiku-3-5 | 8.0% | 9.2% | 0.1617 |
 | haiku-3 | 5.5% | 6.5% | 0.2011 |
 | haiku-4-5 | 12.5% | 12.7% | 0.8842 |
+| gemini-2-5-pro | 43.2% | 56.8% | 1.86e-14 |
+| gemini-3-pro | 53.2% | 31.8% | 3.66e-16 |
 | gpt-3.5 | 6.7% | 6.7% | 1.0000 |
 | gpt-4 | 10.5% | 10.3% | 0.8659 |
 | gpt-4o | 15.0% | 14.2% | 0.3696 |
@@ -349,6 +357,8 @@ This yields the following difficulty and solve time distribution:
 | haiku-3-5 | 12.1% | 13.9% | 0.0454 |
 | haiku-3 | 9.7% | 10.1% | 0.5933 |
 | haiku-4-5 | 24.5% | 25.6% | 0.2811 |
+| gemini-2-5-pro | 39.4% | 46.9% | 3.10e-09 |
+| gemini-3-pro | 47.1% | 53.7% | 7.30e-08 |
 | gpt-3.5 | 10.9% | 11.4% | 0.5719 |
 | gpt-4 | 16.6% | 16.5% | 0.9081 |
 | gpt-4o | 19.2% | 19.1% | 0.8982 |
@@ -373,6 +383,8 @@ This yields the following difficulty and solve time distribution:
 | haiku-3-5 | 12.1% | 12.9% | 0.2970 |
 | haiku-3 | 9.7% | 10.3% | 0.4925 |
 | haiku-4-5 | 24.5% | 24.8% | 0.7421 |
+| gemini-2-5-pro | 39.4% | 46.1% | 3.86e-08 |
+| gemini-3-pro | 46.1% | 53.3% | 1.82e-09 |
 | gpt-3.5 | 10.9% | 10.6% | 0.6805 |
 | gpt-4 | 16.6% | 16.9% | 0.8027 |
 | gpt-4o | 19.2% | 18.4% | 0.3541 |
@@ -381,6 +393,7 @@ This yields the following difficulty and solve time distribution:
 | gpt-5.2 | 27.0% | 29.1% | 0.0488 |
 | deepseek-v3 | 28.2% | 30.4% | 0.0310 |
 | qwen3-235b-a22b | 31.6% | 32.7% | 0.2867 |
+
 
 # Appendix: more plots
 

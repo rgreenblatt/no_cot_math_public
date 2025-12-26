@@ -105,6 +105,8 @@ One sanity check that things are reasonable (and the model isn't doing a bunch o
 | haiku-3-5 | 0.1 min | 0.2 min | +0.1 min |
 | haiku-3 | 0.1 min | 0.1 min | +0.0 min |
 | haiku-4-5 | 0.7 min | 0.7 min | +0.0 min |
+| gemini-2-5-pro | 2.0 min | 2.8 min | +0.8 min |
+| gemini-3-pro | 2.8 min | 3.8 min | +1.0 min |
 | gpt-3.5 | 0.1 min | 0.1 min | -0.0 min |
 | gpt-4 | 0.4 min | 0.4 min | -0.0 min |
 | gpt-4o | 0.5 min | 0.6 min | +0.0 min |
@@ -129,6 +131,8 @@ One sanity check that things are reasonable (and the model isn't doing a bunch o
 | haiku-3-5 | 0.1 min | 0.2 min | +0.1 min |
 | haiku-3 | 0.1 min | 0.2 min | +0.0 min |
 | haiku-4-5 | 0.7 min | 0.7 min | -0.0 min |
+| gemini-2-5-pro | 2.0 min | 2.7 min | +0.7 min |
+| gemini-3-pro | 2.7 min | 3.7 min | +1.0 min |
 | gpt-3.5 | 0.1 min | 0.1 min | -0.0 min |
 | gpt-4 | 0.4 min | 0.4 min | -0.0 min |
 | gpt-4o | 0.5 min | 0.5 min | -0.1 min |
