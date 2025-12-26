@@ -29,6 +29,8 @@ MODELS = [
     # ("deepseek-v3.2", datetime(2025, 12, 1), 1.2, False),
     ("qwen3-235b-a22b", datetime(2025, 7, 21), 1.5, False),
     # ("kimi-k2", datetime(2025, 7, 15), 1.3, False),
+    ("Gemini 2.5 pro", datetime(2025, 6, 17), 2.7, True),
+    ("Gemini 3 pro", datetime(2025, 11, 18), 3.8, True),
 ]
 
 MODELS_NO_REPEAT = [
@@ -37,6 +39,8 @@ MODELS_NO_REPEAT = [
     ("Sonnet 3.5", datetime(2024, 6, 20), 0.6, True),
     ("Opus 4", datetime(2025, 5, 22), 1.7, True),
     ("Opus 4.5", datetime(2025, 11, 24), 2.6, True),
+    ("Gemini 2.5 pro", datetime(2025, 6, 17), 1.9, True),
+    ("Gemini 3 pro", datetime(2025, 11, 18), 2.8, True),
 ]
 
 # Reference date for calculating days

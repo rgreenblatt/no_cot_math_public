@@ -10,10 +10,7 @@ import asyncio
 import random
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
-from google import genai
-from google.genai import types
 from response_cache import ResponseCache
-from gemini_eval_helpers import evaluate_gemini_problem
 
 if "ANTHROPIC_API_KEY" not in os.environ:
     key_path = os.path.expanduser("~/.anthropic_api_key")
@@ -39,13 +36,6 @@ if "OPENROUTER_API_KEY" not in os.environ:
     except FileNotFoundError:
         ...
 
-if "GOOGLE_API_KEY" not in os.environ:
-    key_path = os.path.expanduser("~/.google_api_key")
-    try:
-        with open(key_path, "r") as f:
-            os.environ["GOOGLE_API_KEY"] = f.read().strip()
-    except FileNotFoundError:
-        ...
 
 # Initialize clients
 anthropic_client = AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
@@ -54,7 +44,6 @@ openrouter_client = AsyncOpenAI(
     api_key=os.environ.get("OPENROUTER_API_KEY"),
     base_url="https://openrouter.ai/api/v1",
 )
-google_client = genai.Client(api_key=os.environ.get("GOOGLE_API_KEY"))
 
 # OpenAI models that use different APIs
 OPENAI_COMPLETION_MODELS = {"davinci-002"}
@@ -82,12 +71,14 @@ OPENROUTER_MODELS = {
     "qwen/qwen3-coder",  # 480B A35B
     "qwen/qwen3-32b",
     "moonshotai/kimi-k2",
+    "google/gemini-2.5-pro-preview",
+    "google/gemini-2.5-pro",
 }
 
 # Gemini models (require special handling - no native thinking disable)
 GEMINI_MODELS = {
-    "gemini-2.5-pro",
-    "gemini-3-pro-preview",
+    "google/gemini-2.5-pro",
+    "google/gemini-3-pro-preview",
 }
 
 
@@ -167,7 +158,9 @@ def get_substitute_few_shot_index(target_index, few_shot_indices, num_problems):
 LOREM_IPSUM_WORDS = """lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua ut enim ad minim veniam quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur excepteur sint occaecat cupidatat non proident sunt in culpa qui officia deserunt mollit anim id est laborum""".split()
 
 
-def build_user_message(problem, repeat_problem: None | int = None, filler_tokens: None | int = None, filler_type: str = "numbers"):
+def build_user_message(
+    problem, repeat_problem: None | int = None, filler_tokens: None | int = None, filler_type: str = "numbers"
+):
     instruction = "You will be given a math problem. Answer immediately using the format 'Answer: [ANSWER]' where [ANSWER] is just the numerical answer, nothing else. No explanation, no words, no reasoning, just the number."
 
     STATE_REPEAT_PROBLEMS = False
@@ -241,7 +234,7 @@ def build_few_shot_messages(
     filler_tokens: None | int = None,
     filler_type: str = "numbers",
     cache: bool = False,
-    for_openai_chat: bool = False,
+    disable_prefill: bool = False,
 ):
     """Build the few-shot messages as user/assistant pairs.
 
@@ -251,8 +244,10 @@ def build_few_shot_messages(
     messages = []
 
     for idx, problem in few_shot_problems:
-        user_text = build_user_message(problem, repeat_problem=repeat_problem, filler_tokens=filler_tokens, filler_type=filler_type)
-        if for_openai_chat:
+        user_text = build_user_message(
+            problem, repeat_problem=repeat_problem, filler_tokens=filler_tokens, filler_type=filler_type
+        )
+        if disable_prefill:
             user_text += "\n\nAnswer:"
 
         # User message with instruction and problem
@@ -271,7 +266,7 @@ def build_few_shot_messages(
         messages.append(
             {
                 "role": "assistant",
-                "content": f'Answer: {problem["answer"]}' if not for_openai_chat else str(problem["answer"]),
+                "content": f'Answer: {problem["answer"]}' if not disable_prefill else str(problem["answer"]),
             }
         )
     if cache:
@@ -331,110 +326,11 @@ async def evaluate_problem(
     # Determine model type
     is_openai_completion = model in OPENAI_COMPLETION_MODELS
     is_openai_chat = model in OPENAI_CHAT_MODELS
-    is_openrouter = model in OPENROUTER_MODELS
-    is_openai = is_openai_completion or is_openai_chat
     is_gemini = model in GEMINI_MODELS
+    is_openrouter = model in OPENROUTER_MODELS or is_gemini
+    is_openai = is_openai_completion or is_openai_chat
 
-    # Handle Gemini models separately (they need special validation)
-    if is_gemini:
-        async with semaphore:
-            try:
-                if verbosity >= 2:
-                    print(
-                        f"Starting problem {problem_index + 1}: {problem.get('round')}, {problem.get('category')}, {problem.get('problem_number')}"
-                    )
-
-                gemini_result = await evaluate_gemini_problem(
-                    openrouter_client,
-                    anthropic_client,
-                    response_cache,
-                    few_shot_problems,
-                    problem,
-                    model=model,
-                    repeat_problem=repeat_problem,
-                    filler_tokens=filler_tokens,
-                    filler_type=filler_type,
-                    verbosity=verbosity,
-                )
-
-                response_text = gemini_result["response_text"]
-
-                # Parse the answer
-                model_tried_to_reason = False
-                try:
-                    parsed_response = (
-                        response_text.strip()
-                        .lower()
-                        .removeprefix("[")
-                        .strip()
-                        .removeprefix("answer:")
-                        .removesuffix("]")
-                        .strip()
-                    )
-                    predicted_answer = int(parsed_response.replace(",", ""))
-                except ValueError:
-                    if verbosity >= 1:
-                        print(f"Response is not a valid integer: model_output={response_text}")
-                    predicted_answer = -1
-                    model_tried_to_reason = True
-
-                model_tried_to_reason = model_tried_to_reason or (not gemini_result["validation_passed"])
-
-                correct_answer = problem["answer"]
-                is_correct = (predicted_answer == correct_answer) and gemini_result["validation_passed"]
-
-                result = {
-                    "problem_index": problem_index,
-                    "problem_number": problem.get("problem_number", "N/A"),
-                    "category": problem.get("category", "N/A"),
-                    "round": problem.get("round", "N/A"),
-                    "correct_answer": correct_answer,
-                    "predicted_answer": predicted_answer,
-                    "is_correct": is_correct,
-                    "model_tried_to_reason": model_tried_to_reason,
-                    "response": response_text,
-                    "problem": problem["problem"],
-                    "cached": gemini_result["gemini_cached"],
-                    "modified_few_shot": modified_few_shot,
-                    # Gemini-specific fields
-                    "gemini_validation_passed": gemini_result["validation_passed"],
-                    "gemini_rejected_count": gemini_result["rejected_count"],
-                    "gemini_attempts": gemini_result["attempts"],
-                    "gemini_thinking": gemini_result["thinking_text"],
-                }
-
-                status = "✓ CORRECT" if is_correct else "✗ INCORRECT"
-                cache_status = "[CACHED]" if gemini_result["gemini_cached"] else ""
-                validation_status = "" if gemini_result["validation_passed"] else "[VALIDATION_FAILED]"
-                if verbosity >= 3:
-                    print(
-                        f"Completed problem {problem_index + 1}: {status} ({predicted_answer} vs {correct_answer}) {cache_status} {validation_status}"
-                    )
-
-                return result
-
-            except Exception as e:
-                import traceback
-
-                error_msg = str(e)
-                full_traceback = traceback.format_exc()
-                print(f"Error on problem {problem_index + 1}:")
-                print(f"  Error message: {error_msg}")
-                print(f"  Full error:\n{full_traceback}")
-                return {
-                    "problem_index": problem_index,
-                    "problem_number": problem.get("problem_number", "N/A"),
-                    "category": problem.get("category", "N/A"),
-                    "round": problem.get("round", "N/A"),
-                    "correct_answer": problem["answer"],
-                    "predicted_answer": None,
-                    "is_correct": False,
-                    "error": error_msg,
-                    "error_traceback": full_traceback,
-                    "problem": problem["problem"],
-                    "cached": False,
-                    "modified_few_shot": modified_few_shot,
-                }
+    disable_prefill = (is_openai_chat or is_openrouter) and not is_gemini
 
     # Build few-shot messages for this problem
     few_shot_messages = build_few_shot_messages(
@@ -443,7 +339,7 @@ async def evaluate_problem(
         filler_tokens=filler_tokens,
         filler_type=filler_type,
         cache=not modified_few_shot and not is_openai and not is_openrouter,  # Only use cache_control for Anthropic
-        for_openai_chat=is_openai_chat or is_openrouter,
+        disable_prefill=disable_prefill,
     )
 
     # Define API call parameters
@@ -454,9 +350,13 @@ async def evaluate_problem(
         # For davinci-002: build a text prompt
         prompt_parts = []
         for idx, prob in few_shot_problems:
-            user_text = build_user_message(prob, repeat_problem=repeat_problem, filler_tokens=filler_tokens, filler_type=filler_type)
+            user_text = build_user_message(
+                prob, repeat_problem=repeat_problem, filler_tokens=filler_tokens, filler_type=filler_type
+            )
             prompt_parts.append(f"User: {user_text}\n\nAnswer: {prob['answer']}")
-        current_user_text = build_user_message(problem, repeat_problem=repeat_problem, filler_tokens=filler_tokens, filler_type=filler_type)
+        current_user_text = build_user_message(
+            problem, repeat_problem=repeat_problem, filler_tokens=filler_tokens, filler_type=filler_type
+        )
         prompt_parts.append(f"User: {current_user_text}\n\nAnswer:")
         prompt = "\n\n---\n\n".join(prompt_parts)
         cache_key = {"model": model, "max_tokens": max_tokens, "prompt": prompt}
@@ -470,10 +370,30 @@ async def evaluate_problem(
                 content = content[0]["text"]
             openai_messages.append({"role": msg["role"], "content": content})
         # Add current problem with "Answer:" at end
-        current_user_text = build_user_message(problem, repeat_problem=repeat_problem, filler_tokens=filler_tokens, filler_type=filler_type)
-        current_user_text += "\n\nAnswer:"
-        openai_messages.append({"role": "user", "content": current_user_text})
-        if "gpt-5" in model:
+        current_user_text = build_user_message(
+            problem, repeat_problem=repeat_problem, filler_tokens=filler_tokens, filler_type=filler_type
+        )
+        if disable_prefill:
+            current_user_text += "\n\nAnswer:"
+            openai_messages.append({"role": "user", "content": current_user_text})
+        else:
+            openai_messages.append({"role": "user", "content": current_user_text})
+            openai_messages.append({"role": "assistant", "content": "Answer:"})
+        if is_gemini:
+            cache_key = {
+                "model": model,
+                "max_completion_tokens": 20,
+                "messages": openai_messages,
+                "temperature": 0.0,  # Include in cache key for Gemini only
+                "extra_body": {
+                    "reasoning": {
+                        "enabled": True,
+                        "thinking_level": "low",
+                        "max_tokens": 10,  # maybe this works instead of low thinking budget?
+                    }
+                },
+            }
+        elif "gpt-5" in model:
             cache_key = {
                 "model": model,
                 "max_completion_tokens": max_tokens,
@@ -488,7 +408,9 @@ async def evaluate_problem(
         messages = few_shot_messages + [
             {
                 "role": "user",
-                "content": build_user_message(problem, repeat_problem=repeat_problem, filler_tokens=filler_tokens, filler_type=filler_type),
+                "content": build_user_message(
+                    problem, repeat_problem=repeat_problem, filler_tokens=filler_tokens, filler_type=filler_type
+                ),
             },
             {"role": "assistant", "content": "Answer:"},  # prefill assistant
         ]
@@ -507,7 +429,7 @@ async def evaluate_problem(
                     print(
                         f"[CACHED] Problem {problem_index + 1}: {problem.get('round')}, {problem.get('category')}, {problem.get('problem_number')}"
                     )
-                response_text = cached_response.get("response", "")
+                response_text = cached_response["response"]
             else:
                 # Make API call
                 if verbosity >= 2:
@@ -530,15 +452,61 @@ async def evaluate_problem(
                         )
                         response_text = response.choices[0].text.strip()
                     elif is_openrouter:
+                        # if is_gemini:
+                        #     print(json.dumps(cache_key["messages"], indent=2))
                         # OpenRouter API
-                        response = await asyncio.wait_for(
-                            openrouter_client.chat.completions.create(
-                                **cache_key,
-                                temperature=0.0,
-                            ),
-                            timeout=120.0,
-                        )
-                        response_text = response.choices[0].message.content.strip()
+                        if is_gemini:
+                            # Gemini: use temperature=X (from cache_key) and retry until non-empty
+                            max_retries = 5
+                            for retry_attempt in range(max_retries):
+                                response = await asyncio.wait_for(
+                                    openrouter_client.chat.completions.create(
+                                        **cache_key,  # temperature=X is in cache_key
+                                    ),
+                                    timeout=120.0,
+                                )
+                                choice = response.choices[0]
+                                response_text = choice.message.content.strip()
+                                thinking = None
+                                if hasattr(choice.message, "reasoning") and choice.message.reasoning:
+                                    thinking = choice.message.reasoning
+                                elif hasattr(choice.message, "reasoning_content") and choice.message.reasoning_content:
+                                    thinking = choice.message.reasoning_content
+
+                                if thinking is None and (response_text != ""):
+                                    if verbosity >= 2 and retry_attempt > 0:
+                                        print(f"  Gemini succeeded on retry {retry_attempt + 1}")
+                                    break
+                                elif thinking is not None:
+                                    response_text = "INVALID WAS THINKING"
+                                    if verbosity >= 2:
+                                        print(f"  Gemini model {model} returned reasoning, retrying ({retry_attempt + 1}/{max_retries}). Thinking: {thinking[:100]}")
+                                else:
+                                    assert response_text == "", "Expected empty response"
+                                    if verbosity >= 2:
+                                        print(
+                                            f"  Gemini returned empty response, retrying ({retry_attempt + 1}/{max_retries})..."
+                                        )
+                            else:
+                                if verbosity >= 2:
+                                    print(f"  Gemini returned empty/thinking response after {max_retries} retries")
+                        else:
+                            response = await asyncio.wait_for(
+                                openrouter_client.chat.completions.create(
+                                    **cache_key,
+                                    temperature=0.0,
+                                ),
+                                timeout=120.0,
+                            )
+                            choice = response.choices[0]
+                            response_text = choice.message.content.strip()
+                            thinking = None
+                            if hasattr(choice.message, "reasoning") and choice.message.reasoning:
+                                thinking = choice.message.reasoning
+                            elif hasattr(choice.message, "reasoning_content") and choice.message.reasoning_content:
+                                thinking = choice.message.reasoning_content
+
+                            assert thinking is None, f"Gemini model {model} returned reasoning: {thinking[:100]}"
                     elif is_openai_chat:
                         # OpenAI chat API (gpt-3.5-turbo, gpt-4)
                         response = await asyncio.wait_for(
@@ -549,6 +517,11 @@ async def evaluate_problem(
                             timeout=120.0,
                         )
                         response_text = response.choices[0].message.content.strip()
+                        # Assert no thinking/reasoning for OpenAI
+                        msg = response.choices[0].message
+                        assert not getattr(
+                            msg, "reasoning_content", None
+                        ), f"OpenAI model {model} returned reasoning: {msg.reasoning_content[:100]}"
                     else:
                         # Anthropic API
                         response = await asyncio.wait_for(
@@ -778,11 +751,6 @@ async def run_evaluation(
     accuracy = correct_count / len(results) if results else 0
     cache_hit_rate = cached_count / len(results) if results else 0
 
-    # Gemini-specific statistics
-    gemini_validation_failed_count = sum(1 for r in results if r.get("gemini_validation_passed") is False)
-    gemini_total_rejected = sum(r.get("gemini_rejected_count", 0) for r in results)
-    has_gemini_results = any("gemini_validation_passed" in r for r in results)
-
     if verbosity >= 1:
         print(f"\n{'='*60}")
         print(f"EVALUATION COMPLETE")
@@ -794,9 +762,6 @@ async def run_evaluation(
         print(f"Cache hits: {cached_count}/{len(results)} ({cache_hit_rate:.1%})")
         print(f"Loaded from output: {loaded_from_output_count}")
         print(f"Modified few-shot: {modified_few_shot_count}")
-        if has_gemini_results:
-            print(f"Gemini validation failures: {gemini_validation_failed_count}")
-            print(f"Gemini total rejected attempts: {gemini_total_rejected}")
 
     # Save results if output file specified
     if output_file:
@@ -812,8 +777,6 @@ async def run_evaluation(
                         "cache_hit_rate": cache_hit_rate,
                         "loaded_from_output": loaded_from_output_count,
                         "modified_few_shot": modified_few_shot_count,
-                        "gemini_validation_failed": gemini_validation_failed_count if has_gemini_results else None,
-                        "gemini_total_rejected": gemini_total_rejected if has_gemini_results else None,
                         "few_shot_indices": list(few_shot_indices),
                         "few_shot_problems": [
                             {
@@ -873,8 +836,8 @@ def parse_model_name(model_shorthand):
         "qwen3-32b": "qwen/qwen3-32b",
         "kimi-k2": "moonshotai/kimi-k2",
         # Gemini models
-        "gemini-2-5-pro": "gemini-2.5-pro",
-        "gemini-3-pro": "gemini-3-pro-preview",
+        "gemini-2-5-pro": "google/gemini-2.5-pro",
+        "gemini-3-pro": "google/gemini-3-pro-preview",
     }
     return model_map.get(model_shorthand, model_shorthand)
 
@@ -962,7 +925,7 @@ if __name__ == "__main__":
     # Override k_shot for Gemini models
     k_shot = args.k_shot
     if model in GEMINI_MODELS:
-        k_shot = 5
+        k_shot = 20
 
     if args.verbosity >= 1:
         print(f"Configuration:")

@@ -33,7 +33,7 @@ async def sweep_evaluations(
         input_file = "problems_with_answers.jsonl"
         output_prefix = "sweep"
 
-    concurrency = 5
+    concurrency = 600
 
     # Create output directory if it doesn't exist
     os.makedirs("eval_results", exist_ok=True)
@@ -44,7 +44,12 @@ async def sweep_evaluations(
     for model in models:
         model_results = {}
         model_id = parse_model_name(model)
-        k_shot = 3 if model == "gpt-4" else 10
+        if model == "gpt-4":
+            k_shot = 3
+        elif "gemini" in model.lower():
+            k_shot = 20
+        else:
+            k_shot = 10
 
         for r in r_values:
             r_label = 1 if r is None else r
@@ -109,7 +114,7 @@ async def sweep_filler_evaluations(
         input_file = "problems_with_answers.jsonl"
         output_prefix = "sweep_filler"
 
-    concurrency = 5
+    concurrency = 600
 
     # Create output directory if it doesn't exist
     os.makedirs("eval_results", exist_ok=True)
@@ -120,7 +125,12 @@ async def sweep_filler_evaluations(
     for model in models:
         model_results = {}
         model_id = parse_model_name(model)
-        k_shot = 3 if model == "gpt-4" else 10
+        if model == "gpt-4":
+            k_shot = 3
+        elif "gemini" in model.lower():
+            k_shot = 20
+        else:
+            k_shot = 10
 
         for f in f_values:
             f_label = 0 if f is None else f
@@ -573,6 +583,8 @@ async def run_partial_sweep(sweep_type: str, sweep_for_arith: bool, verbosity: i
         "haiku-3-5",
         "haiku-3",
         "haiku-4-5",
+        "gemini-2-5-pro", # note: Gemini 2.5 Pro uses k_shot=20
+        "gemini-3-pro", # note: Gemini 3 Pro uses k_shot=20
         "gpt-3.5",
         "gpt-4", # note: GPT-4 uses k_shot=3
         "gpt-4o",
@@ -989,6 +1001,8 @@ def plot_filler_vs_repeat_comparison(sweep_for_arith: bool):
         "haiku-3-5",
         "haiku-3",
         "haiku-4-5",
+        "gemini-2-5-pro",
+        "gemini-3-pro",
         "gpt-3.5",
         "gpt-4",
         "gpt-4o",
@@ -1066,6 +1080,8 @@ def plot_filler_vs_repeat_comparison(sweep_for_arith: bool):
         "gpt-5.2": "#45B7D1",
         "deepseek-v3": "#96CEB4",
         "qwen3-235b-a22b": "#FFEAA7",
+        "gemini-2-5-pro": "#A855F7",
+        "gemini-3-pro": "#A855F7",
     }
 
     # Create two plots: absolute and relative
@@ -1165,6 +1181,8 @@ def plot_partial_sweep_bar_chart(sweep_for_arith: bool):
         "haiku-4-5",
         "haiku-3-5",
         "haiku-3",
+        "gemini-3-pro",
+        "gemini-2-5-pro",
         "gpt-5.2",
         "gpt-5.1",
         "gpt-4.1",
@@ -1332,7 +1350,7 @@ def plot_partial_sweep_bar_chart(sweep_for_arith: bool):
 
 async def main():
     """Main function to run sweep and create plot."""
-    verbosity = 0
+    verbosity = 2
     all_markdown_tables = ["# Sweep Results Summary\n"]
 
     for sweep_for_arith in [True, False]:
